@@ -9,8 +9,8 @@
 #include<sys/shm.h>
 #include<sys/msg.h>
 
-#define P(s) semop(s, &pop, 1)
-#define V(s) semop(s, &vop, 1)
+#define P(s) semop(s, &pop, 1)  // wait 
+#define V(s) semop(s, &vop, 1)   // signal
 
 #define MAX_COOKS 2
 #define MAX_WAITERS 5
@@ -25,8 +25,30 @@
 #define C_1 1100
 #define MUTEX 13
 
+int *M;
+int mutexid,cookid,waiterid,customerid;
+struct sembuf pop,vop;
+
 void cmain(){
     // code for cooks 
+    while( M[0]< 400 ){
+        P(cookid);
+        int front = M[C_1+2];
+        int waiter_no = M[front];
+        int customer_id = M[front+1];
+        int count = M[front+2];
+        // print statement
+        P(mutexid);
+        M[2]--;
+        M[C_1] = (M[C_1]+3)%2000;
+        V(mutexid);
+        // sleep for 5*count seconds
+        int time_to_sleep = count*5*100;
+        usleep(time_to_sleep);
+        vop.sem_num = waiter_no;
+        M[C_1] = customer_id;   // have to change this 
+        V(waiterid);
+    }   
 }
 
 int main(){
@@ -40,14 +62,11 @@ int main(){
     // 1100-2000 for cooks
 
     int shmid = shmget(key,2000*sizeof(int),0777|IPC_CREAT);
-    int *M = (int*)shmat(shmid,(void*)0,0);
+    M = (int*)shmat(shmid,(void*)0,0);
     for(int i=0 ; i<2000 ; i++ ){
-        M[i] = 0;
+        M[i] = -1;
     }
     
-
-    int mutexid,cookid,waiterid,customerid;
-    struct sembuf pop,vop;
     int status;
 
     mutexid = semget(IPC_PRIVATE,1,0777|IPC_CREAT);

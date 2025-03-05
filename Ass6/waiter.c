@@ -24,15 +24,45 @@
 #define C_1 1100
 #define MUTEX 13
 
+int *M;
+int mutexid,cookid,waiterid,customerid;
+struct sembuf pop,vop;
+
 #define P(s) semop(s, &pop, 1)
 #define V(s) semop(s, &vop, 1)
 
 void wmain(){
     // code for waiters 
+    while(M[0]<400){
+        P(waiterid);
+        P(mutexid);
+        if( M[W_1]!= -1 ){
+            // cook wakes up the waiter
+            int customer_id = M[W_1];
+            M[W_1]=-1;
+            vop.sem_num=customer_id;
+            V(customerid);
+            V(mutexid);
+        }else{
+            // customer wakes up the waiter 
+            int front = M[W_1+2];
+            int customer_id = M[front];
+            int count = M[front+1];
+            M[W_1+2] = (front+2)%2000;
+            usleep(100); // 100 ms for taking the order
+            int back = M[C_1+1];
+            M[back] = 1;     // waiter number, should have to change after 
+            M[back+1] = customer_id;
+            M[back+2] = count;
+            M[C_1+1] = (back+3)%2000;
+            V(mutexid);
+            V(cookid);    // signals to the cooks 
+        }
+    }
 }
 
 int main(){
-    struct sembuf pop,vop;
+    
     int status;
 
     pop.sem_num = vop.sem_num = 0;
@@ -41,9 +71,8 @@ int main(){
     vop.sem_op = 1;
 
     int shmid = shmget(key,2000*sizeof(int),0777|IPC_CREAT);
-    int *M = (int*)shmat(shmid,(void*)0,0);
+    M = (int*)shmat(shmid,(void*)0,0);
 
-    int mutexid,cookid,waiterid,customerid;
 
     mutexid = M[MUTEX];
     cookid = M[MUTEX+1];

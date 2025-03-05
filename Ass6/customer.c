@@ -32,8 +32,20 @@ typedef struct customer{
     int count;
 } customer;
 
+int *M;
+int mutexid,cookid,waiterid,customerid;
+struct sembuf pop,vop;
+
 void cmain( int id , int arrival_time , int count ){
     // code for customers 
+    if( M[0]> 400 ) return ;
+    if( M[1]==0 ) return ;
+    while(1){
+        P(mutexid);
+        M[1]--;
+        P(waiterid);   // wait for the waiter
+        
+    }
 }
 
 int main(){
@@ -51,13 +63,11 @@ int main(){
         exit(1);
     }
 
-    int *M = (int*)shmat(shmid,(void*)0,0);
+    M = (int*)shmat(shmid,(void*)0,0);
     if (M == (void*)-1) {
         perror("shmat failed");
         exit(1);
     }
-
-    int mutexid,cookid,waiterid,customerid;
 
     mutexid = M[MUTEX];
     cookid = M[MUTEX+1];
