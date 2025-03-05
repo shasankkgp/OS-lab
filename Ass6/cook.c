@@ -17,6 +17,13 @@
 #define MAX_CUSTOMERS 200
 
 #define key 1234
+#define W_1 100
+#define W_2 300
+#define W_3 500
+#define W_4 700
+#define W_5 900
+#define C_1 1100
+#define MUTEX 13
 
 void cmain(){
     // code for cooks 
@@ -33,9 +40,9 @@ int main(){
     // 1100-2000 for cooks
 
     int shmid = shmget(key,2000*sizeof(int),0777|IPC_CREAT);
-    int *shm = (int*)shmat(shmid,(void*)0,0);
+    int *M = (int*)shmat(shmid,(void*)0,0);
     for(int i=0 ; i<2000 ; i++ ){
-        shm[i] = 0;
+        M[i] = 0;
     }
     
 
@@ -61,8 +68,18 @@ int main(){
     for( int i=0 ; i<MAX_CUSTOMERS ; i++ ){
         semctl(customerid,i,SETVAL,0);
     }
+    // Enter all these variables in first 100 locations of shared memory
+    // M[0] = time , M[1] = number of empty tables , M[2] = number of orders pending , M[3]-M[12] = table status
+    M[0] = 0;
+    M[1] = 10;
+    M[2] = 0;
+    M[3] = 0;
+    M[MUTEX] = mutexid;
+    M[MUTEX+1] = cookid;
+    M[MUTEX+2] = waiterid;
+    M[MUTEX+3] = customerid;
 
-    for(int i=0 ; i<MAX_COOKS ; i++ ){
+    for( int i=0 ; i<MAX_COOKS ; i++ ){
         if(fork() == 0){
             cmain();
             exit(0);
