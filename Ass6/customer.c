@@ -61,24 +61,29 @@ void cmain(int id, int arrival_time, int count) {
         }
 
         P(mutexid);
+        print_time();
+        printf("Got the mutex lock\n");
 
         int current_time = M[0];
 
         M[1]--;  // decrement in empty tables
-        int back = M[W_1+200*((id%5)-1)+3];  // read the back of the queue
+        int back = M[W_1+200*((id-1)%5)+3];  // read the back of the queue
         M[back]= id;  // store customer id in waiter's location
         M[back+1] = count;  // store count in waiter's location
-        M[W_1+200*((id%5)-1)+3] = (back+2)%2000;  // update back of the queue
-        M[W_1+200*((id%5)-1)+1]++;  // increase the waiting orders for the waiter
+        M[W_1+200*((id-1)%5)+3] = (back+2)%2000;  // update back of the queue
+        M[W_1+200*((id-1)%5)+1]++;  // increase the waiting orders for the waiter
 
+        printf("Released the mutex lock\n");
         V(mutexid);
+        
 
-        pop.sem_num = (id % 5) - 1;  // specify which waiter to wake up
-        P(waiterid);   // wait for the waiter
+        pop.sem_num = (id-1)%5;  // specify which waiter to wake up
+        printf("Signalling waiter %c\n", 'U' + (id-1)%5);
+        V(waiterid);   // signal to the waiter to take order
 
         // place order statement
         print_time();
-        printf("Customer %d: Order placed to Waiter %c\n", id, 'U' + (id % 5) - 1);
+        printf("Customer %d: Order placed to Waiter %c\n", id, 'U' + (id-1)%5);
 
         pop.sem_num = id;  // specify which customer to wake up
         P(customerid);  // wait for order to come 
@@ -139,6 +144,9 @@ int main() {
 
         int delay = (arrival_time - last_arrival_time) * 100; // Convert minutes to simulated time
         usleep(delay);
+        P(mutexid);
+        M[0] = arrival_time;
+        V(mutexid);
         last_arrival_time = arrival_time;
 
         if (fork() == 0) {

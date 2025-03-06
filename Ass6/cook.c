@@ -136,6 +136,30 @@ int main() {
     M[MUTEX + 2] = waiterid;
     M[MUTEX + 3] = customerid;
 
+    // initializations regarding queue values 
+    M[W_1] = -1;
+    M[W_1 + 1] = 0;
+    M[W_1 + 2] = W_1 + 4;
+    M[W_1+3] = W_1+4;
+    M[W_2] = -1;
+    M[W_2+1] =0;
+    M[W_2+2] = W_2+4;
+    M[W_2+3] = W_2+4;
+    M[W_3] = -1;
+    M[W_3+1]=0;
+    M[W_3+2] = W_3+4;
+    M[W_3+3] = W_3+4;
+    M[W_4] = -1;
+    M[W_4+1]=0;
+    M[W_4+2] = W_4+4;
+    M[W_4+3] = W_4+4;
+    M[W_5] = -1;
+    M[W_5+1]=0;
+    M[W_5+2] = W_5+4;
+    M[W_5+3] = W_5+4;
+    M[C_1] = C_1+2;
+    M[C_1 + 1] = C_1+2;
+
     for (int i = 0; i < MAX_COOKS; i++) {
         if (fork() == 0) {
             cmain(i);
