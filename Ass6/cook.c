@@ -45,9 +45,12 @@ void cmain( int cook_no) {
     print_time();
     printf("Cook %c is ready\n",'C' + cook_no);
 
-    while (M[0] < 240) {   // repeat part done
+    while (M[0] < 240 || M[2]>0 ) {   // repeat part done
         P(cookid);     // wait untill woken up , which waiter have woke me up ? 
+        print_time();
+        printf("Cook %c: Woke up\n",'C' + cook_no);
         P(mutexid);
+        printf("Got the mutex key\n");
 
         int front = M[C_1];    // read cooking request 
         int waiter_no = M[front];
@@ -61,20 +64,26 @@ void cmain( int cook_no) {
         int current_time = M[0];
         M[2]--;    // orders pending is reduced by 1
         M[C_1] = (M[C_1] + 3) % 2000;   // front is updated
+
         V(mutexid);
 
+        current_time = M[0];
         // sleep for 5*count seconds
         int time_to_sleep = count * 5 * 100;     // preparing food for each time 
         usleep(time_to_sleep);
         P(mutexid);
+        
+        M[0] = current_time + count * 5;   // update the current time
+        vop.sem_num = waiter_no;    // signal the exact waiter
+        M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
+
         //print statement
         print_time();
         printf("Cook %c: Prepared order (Waiter %c,Customer %d, Count %d)\n", 'C' + cook_no, 'U' + waiter_no, customer_id, count);
 
-        M[0] = current_time + count * 5;   // update the current time
-        vop.sem_num = waiter_no;    // signal the exact waiter
-        M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
+        printf("Signaling waiter %c\n", 'U' + waiter_no);
         V(waiterid);        // signaling the waiter
+        printf("Released the mutex key\n");
         V(mutexid);
     }   
 

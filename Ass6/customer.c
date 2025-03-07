@@ -48,8 +48,8 @@ void print_time(){
 void cmain(int id, int arrival_time, int count) {
     // code for customers 
     if (M[0] > 240) return;
-    if (M[1] == 0) return;
-    while (1) {
+    // if (M[1] == 0) return;
+    // while (M[2] > 0 ) {
 
         print_time();
         printf("Customer %d arrives (count = %d)\n", id, count);
@@ -88,19 +88,20 @@ void cmain(int id, int arrival_time, int count) {
         pop.sem_num = id;  // specify which customer to wake up
         P(customerid);  // wait for order to come 
 
+        current_time = M[0];
         // eat food, eating takes 30 min time 
         int time_to_sleep = 30 * 100;  // 30 min time
         usleep(time_to_sleep);
         P(mutexid);
 
-        // eat food statement
-        print_time();
-        printf("Customer %d inishes eating and leaves\n", id);
-
         M[0]= current_time + 30;  // update the current time
         M[1]++;   // empty table is increased by 1 
+
+        // eat food statement
+        print_time();
+        printf("Customer %d finishes eating and leaves\n", id);
         V(mutexid);
-    }
+    // }
 }
 
 int main() {

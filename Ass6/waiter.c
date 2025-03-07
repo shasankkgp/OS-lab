@@ -43,7 +43,7 @@ void wmain(int waiter_no) {  // Pass waiter number
     // code for waiters
     print_time();
     printf("Waiter %c is ready\n", 'U' + waiter_no);
-    while (M[0] < 240) {
+    while (M[0] < 240  ) {     // || M[2]>0
         pop.sem_num = waiter_no;  // Specify which semaphore to decrement
         P(waiterid);  // Wait for signal on specific waiter semaphore
         print_time();
@@ -60,6 +60,7 @@ void wmain(int waiter_no) {  // Pass waiter number
 
             vop.sem_num = customer_id;   // signal the customer 
             V(customerid);
+            printf("released the mutrex lock\n");
             V(mutexid);
         } else {     // if customer is the one to wake up
             int front = M[W_1+200*waiter_no+ 2]; 
@@ -68,7 +69,7 @@ void wmain(int waiter_no) {  // Pass waiter number
             M[W_1+200*waiter_no + 2] = (front + 2) % 2000;
             M[W_1+200*waiter_no + 1]--;
            
-
+            current_time = M[0];
             usleep(100); // 100 ms for taking the order
             M[0] = current_time + 1;  // update the current time
 
@@ -82,7 +83,9 @@ void wmain(int waiter_no) {  // Pass waiter number
             M[back + 1] = customer_id;
             M[back + 2] = count;
             M[C_1 + 1] = (back + 3) % 2000;  // update back of cooks queue
+            printf("Signaling the cook\n");
             V(cookid);    // signal the cook
+            printf("released the mutrex lock\n");
             V(mutexid);
         }
     }
