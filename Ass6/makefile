@@ -1,15 +1,25 @@
+.PHONY: all db clean cook waiter customer
+
 all:
 	gcc -Wall -o cook cook.c
 	gcc -Wall -o waiter waiter.c
 	gcc -Wall -o customer customer.c
+
 db:
 	gcc -Wall -o gencustomers gencustomers.c
 	./gencustomers > customers.txt
+
 clean:
 	-rm -f cook waiter customer gencustomers
+
 cook:
 	./cook > transcript_cook.txt
+
 waiter:
 	./waiter > transcript_waiter.txt
+
 customer:
 	./customer > transcript_customer.txt
+
+run_all:
+	./cook & sleep 1 && ./waiter & sleep 1 && ./customer > transcript_all.txt

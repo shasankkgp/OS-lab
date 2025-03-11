@@ -40,12 +40,14 @@ void print_time() {
     const char *period = (hours % 24 >= 12) ? "pm" : "am";
     
     printf("[%02d:%02d %s]", display_hour, minutes, period);
+    fflush(stdout);
 }
 
 // Function to print indentation based on waiter number
 void print_indent(int waiter_no) {
     for (int i = 0; i < waiter_no; i++) {
         printf("\t");
+        // fflush(stdout);
     }
 }
 
@@ -71,6 +73,7 @@ void wmain(int waiter_no) {  // Pass waiter number
     print_time();
     print_indent(waiter_no);
     printf("Waiter %c is ready\n", 'U' + waiter_no);
+    fflush(stdout);
 
     while (M[0] <= 240 || M[waiter_base+1]>0 || M[waiter_base] != -1) {
         pop.sem_num = waiter_no;  // Specify which semaphore to decrement
@@ -91,6 +94,7 @@ void wmain(int waiter_no) {  // Pass waiter number
             print_time();
             print_indent(waiter_no);
             printf("Waiter %c: Serving food to Customer %d\n", 'U' + waiter_no, customer_id);
+            fflush(stdout);
 
             vop.sem_num = customer_id-1;   // signal the customer 
             V(customerid);
@@ -129,6 +133,7 @@ void wmain(int waiter_no) {  // Pass waiter number
             print_time();
             print_indent(waiter_no);
             printf("Waiter %c: Placing order for Customer %d (count = %d)\n", 'U' + waiter_no, customer_id, count);
+            fflush(stdout);
 
             M[3]++;   // increase in orders pending
             int back = M[C_1 + 1];   // back of cooks queue
@@ -155,6 +160,7 @@ void wmain(int waiter_no) {  // Pass waiter number
     print_time();
     print_indent(waiter_no);
     printf("Waiter %c leaving (no more customers to serve)\n", 'U' + waiter_no);
+    fflush(stdout);
 }
 
 int main() {

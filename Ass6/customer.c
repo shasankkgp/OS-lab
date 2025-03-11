@@ -47,6 +47,7 @@ void print_time() {
     const char *period = (hours % 24 >= 12) ? "pm" : "am";
     
     printf("[%02d:%02d %s]", display_hour, minutes, period);
+    fflush(stdout);
 }
 
 void handler(int sig) {
@@ -75,20 +76,23 @@ void cmain(int id, int arrival_time, int count) {
         vop.sem_num = 0;
         V(mutexid);
         print_time();
-        printf("Customer %d leaves (late arrival)\n", id);
-        return;
+        printf("\t\t\t\t\t Customer %d leaves (late arrival)\n", id);
+        fflush(stdout);
+        exit(EXIT_SUCCESS);
     }
 
     if( M[1] == 0 ){
         vop.sem_num = 0;
         V(mutexid);
         print_time();
-        printf("\t\t\t\t\tCustomer %d leaves (no empty table)\n", id);
-        return;
+        printf("\t\t\t\t\t Customer %d leaves (no empty table)\n", id);
+        fflush(stdout);
+        exit(EXIT_SUCCESS);
     }
     
     print_time();
-    printf("Customer %d arrives (count = %d)\n", id, count);
+    printf(" Customer %d arrives (count = %d)\n", id, count);
+    fflush(stdout);
 
     int current_time = M[0];
 
@@ -122,7 +126,8 @@ void cmain(int id, int arrival_time, int count) {
 
     // place order statement
     print_time();
-    printf("\tCustomer %d: Order placed to Waiter %c\n", id, 'U' + (id-1)%5);
+    printf("\tCustomer %d: Order placed to Waiter %c\n", id, 'U' + waiter_index);
+    fflush(stdout);
 
     vop.sem_num = 0;
     V(mutexid);
@@ -139,6 +144,7 @@ void cmain(int id, int arrival_time, int count) {
     // order is ready statement
     print_time();
     printf("\t\tCustomer %d gets food [Waiting time = %d]\n", id, waiting_time);
+    fflush(stdout);
 
     vop.sem_num = 0;
     V(mutexid);
@@ -165,6 +171,7 @@ void cmain(int id, int arrival_time, int count) {
     // eat food statement
     print_time();
     printf("\t\t\tCustomer %d finishes eating and leaves\n", id);
+    fflush(stdout);
     vop.sem_num = 0;
     V(mutexid);
 }
@@ -208,6 +215,7 @@ int main() {
         
         if (arrival_time < last_arrival_time) {
             fprintf(stderr, "Error: Customer %d has an invalid arrival time.\n", id);
+            fflush(stdout);
             continue;
         }
 
@@ -236,6 +244,20 @@ int main() {
 
     // Wait for all customer processes to complete
     while (wait(NULL) > 0);
+
+    // Clean up IPC resources at the end of execution
+    // Clean up semaphores
+    semctl(mutexid, 0, IPC_RMID);
+    semctl(cookid, 0, IPC_RMID);
+    semctl(waiterid, 0, IPC_RMID);
+    semctl(customerid, 0, IPC_RMID);
+    
+    // Detach and remove shared memory
+    shmdt(M);
+    shmctl(shmid, IPC_RMID, NULL);
+    
+    printf("All IPC resources have been cleaned up.\n");   
+    
 
     return 0;
 }

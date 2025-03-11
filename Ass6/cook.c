@@ -41,6 +41,7 @@ void print_time() {
     const char *period = (hours % 24 >= 12) ? "pm" : "am";
     
     printf("[%02d:%02d %s]", display_hour, minutes, period);
+    // fflush(stdout);
 }
 
 // cookid - 1 semaphore
@@ -55,8 +56,10 @@ void cmain(int cook_no) {
     print_time();
     if (cook_no == 0) {
         printf(" Cook %c is ready\n", cook_name);
+        fflush(stdout);
     } else {
         printf(" \tCook %c is ready\n", cook_name);
+        fflush(stdout);
     }
 
     while ( M[0] <= 240 || M[3]>0 ) {   // repeat part done
@@ -97,11 +100,11 @@ void cmain(int cook_no) {
         // print statement
         print_time();
         if (cook_no == 0) {
-            printf(" Cook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 
-                   cook_name, 'U' + waiter_no, customer_id, count);
+            printf(" Cook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n",cook_name, 'U' + waiter_no, customer_id, count);
+            fflush(stdout);
         } else {
-            printf(" \tCook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 
-                   cook_name, 'U' + waiter_no, customer_id, count);
+            printf(" \tCook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n",cook_name, 'U' + waiter_no, customer_id, count);
+            fflush(stdout);
         }
         
         vop.sem_num = 0;
@@ -120,11 +123,11 @@ void cmain(int cook_no) {
         //print statement
         print_time();
         if (cook_no == 0) {
-            printf(" Cook %c: Prepared order (Waiter %c, Customer %d, Count %d)\n", 
-                   cook_name, 'U' + waiter_no, customer_id, count);
+            printf(" Cook %c: Prepared order (Waiter %c, Customer %d, Count %d)\n",cook_name, 'U' + waiter_no, customer_id, count);
+            fflush(stdout);
         } else {
-            printf(" \tCook %c: Prepared order (Waiter %c, Customer %d, Count %d)\n", 
-                   cook_name, 'U' + waiter_no, customer_id, count);
+            printf(" \tCook %c: Prepared order (Waiter %c, Customer %d, Count %d)\n",cook_name, 'U' + waiter_no, customer_id, count);
+            fflush(stdout);
         }
 
         M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
@@ -143,8 +146,10 @@ void cmain(int cook_no) {
     print_time();
     if (cook_no == 0) {
         printf(" Cook %c: Leaving\n", cook_name);
+        fflush(stdout);
     } else {
         printf(" \tCook %c: Leaving\n", cook_name);
+        fflush(stdout);
     }
 
     if (cook_no == MAX_COOKS - 1) {
@@ -171,15 +176,15 @@ int main() {
     vop.sem_op = 1;
     
     // Create shared memory segment
-    int shmid = shmget(key, 2000 * sizeof(int), 0777 | IPC_CREAT);
+    int shmid = shmget(key, 2000 * sizeof(int), 0777 | IPC_CREAT | IPC_EXCL);
     if (shmid == -1) {
-        perror("shmget failed");
+        perror("Failed to create shared resources\n");
         exit(1);
     }
     
     M = (int*)shmat(shmid, (void*)0, 0);
     if (M == (void*)-1) {
-        perror("shmat failed");
+        perror("Failed to attach shared memory\n");
         exit(1);
     }
     
@@ -205,10 +210,10 @@ int main() {
     }
     
     // Create semaphores
-    mutexid = semget(key + 1, 1, 0777 | IPC_CREAT);
-    cookid = semget(key + 2, 1, 0777 | IPC_CREAT);
-    waiterid = semget(key + 3, MAX_WAITERS, 0777 | IPC_CREAT);
-    customerid = semget(key + 4, MAX_CUSTOMERS, 0777 | IPC_CREAT);
+    mutexid = semget(key + 1, 1, 0777 | IPC_CREAT | IPC_EXCL);
+    cookid = semget(key + 2, 1, 0777 | IPC_CREAT | IPC_EXCL);
+    waiterid = semget(key + 3, MAX_WAITERS, 0777 | IPC_CREAT | IPC_EXCL);
+    customerid = semget(key + 4, MAX_CUSTOMERS, 0777 | IPC_CREAT | IPC_EXCL);
     
     // Initialize semaphores
     semctl(mutexid, 0, SETVAL, 1);
@@ -228,9 +233,12 @@ int main() {
     
     // Fork cook processes
     for (int i = 0; i < MAX_COOKS; i++) {
-        if (fork() == 0) {
+        pid_t pid = fork();
+        if (pid == 0) {
             cmain(i);
-            exit(0);
+        } else if (pid < 0) {
+            perror("Failed to fork cook process\n");
+            exit(1);
         }
     }
     
