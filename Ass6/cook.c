@@ -31,8 +31,16 @@ int *M;
 int mutexid, cookid, waiterid, customerid;
 struct sembuf pop, vop;
 
-void print_time(){
-    printf("[%02d:%02d am]",11+M[0]/60,M[0]%60);
+void print_time() {
+    int total_minutes = 11 * 60 + M[0];  // Convert 11:00 AM base to minutes
+    int hours = total_minutes / 60;
+    int minutes = total_minutes % 60;
+    
+    // Convert to 12-hour format
+    int display_hour = (hours % 12 == 0) ? 12 : hours % 12;
+    const char *period = (hours % 24 >= 12) ? "pm" : "am";
+    
+    printf("[%02d:%02d %s]", display_hour, minutes, period);
 }
 
 // cookid - 1 semaphore
@@ -41,54 +49,80 @@ void print_time(){
 // mutexid - 1 semaphore
 
 void cmain( int cook_no) {
+    char cook_name = 'C' + cook_no;
+
     // code for cooks 
     print_time();
-    printf("Cook %c is ready\n",'C' + cook_no);
+    printf("Cook %c is ready\n",cook_name);
 
     while (M[0] < 240 || M[2]>0 ) {   // repeat part done
         P(cookid);     // wait untill woken up , which waiter have woke me up ? 
-        print_time();
-        printf("Cook %c: Woke up\n",'C' + cook_no);
+        // print_time();
+        // printf("Cook %c: Woke up\n",'C' + cook_no);
         P(mutexid);
-        printf("Got the mutex key\n");
+        // printf("Got the mutex key\n");
+
+        if( M[2]<=0 ){
+            V(mutexid);
+            continue;
+        }
 
         int front = M[C_1];    // read cooking request 
         int waiter_no = M[front];
         int customer_id = M[front + 1];
         int count = M[front + 2];
 
-        // print statement
-        print_time();
-        printf("Cook %c: Prepating order (Waiter %c, Customer &=%d, Count %d)\n", 'C' + cook_no, 'U' + waiter_no, customer_id, count);
-       
-        int current_time = M[0];
-        M[2]--;    // orders pending is reduced by 1
-        M[C_1] = (M[C_1] + 3) % 2000;   // front is updated
+        if (customer_id <= 0 || count <= 0) {
+            // Invalid order, skip it
+            V(mutexid);
+            continue;
+        }
 
+        M[C_1] = front+3;   // update front of the queue
+        M[2]--;   // decrease the orders pending
+        int current_time = M[0];
         V(mutexid);
 
-        current_time = M[0];
-        // sleep for 5*count seconds
-        int time_to_sleep = count * 5 * 100;     // preparing food for each time 
-        usleep(time_to_sleep);
+        int cook_time = count * 5 ;   // preparing food for each time
+
+        // print statement
+        print_time();
+        printf("Cook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 'C' + cook_no, 'U' + waiter_no, customer_id, count);
+
+        usleep(cook_time*100);
+
         P(mutexid);
-        
-        M[0] = current_time + count * 5;   // update the current time
-        vop.sem_num = waiter_no;    // signal the exact waiter
-        M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
+        // printf("Got the mutex key\n");
+
+        if( M[0] < current_time + cook_time ){
+            M[0] = current_time + cook_time;
+        }
 
         //print statement
         print_time();
         printf("Cook %c: Prepared order (Waiter %c,Customer %d, Count %d)\n", 'C' + cook_no, 'U' + waiter_no, customer_id, count);
 
-        printf("Signaling waiter %c\n", 'U' + waiter_no);
-        V(waiterid);        // signaling the waiter
-        printf("Released the mutex key\n");
+        
+        M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
+
         V(mutexid);
+
+        vop.sem_num = waiter_no;    // signal the exact waiter
+        // printf("Signaling waiter %c\n", 'U' + waiter_no);
+        V(waiterid);        // signaling the waiter
+        
     }   
 
     print_time();
-    printf("Cook %c: leaving\n",'C' + cook_no);
+    printf("Cook %c: leaving\n",cook_name);
+
+    if( cook_no == MAX_COOKS - 1 ){
+        // printf("All cooks are leaving\n");
+        for (int i = 0; i < MAX_WAITERS; i++) {
+            vop.sem_num = i;   
+            V(waiterid);    // signal all the waiters
+        }
+    }
 }
 
 int main() {
@@ -100,32 +134,51 @@ int main() {
     // 700-899 for waiter 4
     // 900-1099 for waiter 5
     // 1100-2000 for cooks
-
-    int shmid = shmget(key, 2000 * sizeof(int), 0777 | IPC_CREAT);
-    M = (int*)shmat(shmid, (void*)0, 0);
-    for (int i = 0; i < 2000; i++) {
-        M[i] = -1;
-    }
-    
-    // int status;
-
-    key_t sem_key = ftok("cook.c", 'S'); // Generate unique key
-    mutexid = semget(sem_key, 1, 0666 | IPC_CREAT);
-    cookid = semget(sem_key + 1, 1, 0666 | IPC_CREAT);
-    waiterid = semget(sem_key + 2, MAX_WAITERS, 0666 | IPC_CREAT);
-    customerid = semget(sem_key + 3, MAX_CUSTOMERS, 0666 | IPC_CREAT);
-
-    if (mutexid == -1 || cookid == -1 || waiterid == -1 || customerid == -1) {
-        perror("semget failed");
-        exit(1);
-    }
-
-    
     pop.sem_num = vop.sem_num = 0;
     pop.sem_flg = vop.sem_flg = 0;
     pop.sem_op = -1;    
     vop.sem_op = 1;
-
+    
+    // Create shared memory segment
+    int shmid = shmget(key, 2000 * sizeof(int), 0777 | IPC_CREAT);
+    if (shmid == -1) {
+        perror("shmget failed");
+        exit(1);
+    }
+    
+    M = (int*)shmat(shmid, (void*)0, 0);
+    if (M == (void*)-1) {
+        perror("shmat failed");
+        exit(1);
+    }
+    
+    // Initialize shared memory
+    // Enter all these variables in first 100 locations of shared memory
+    // M[0] = time, M[1] = number of empty tables, M[2] = number of orders pending, M[3]-M[12] = table status
+    M[0] = 0;           // Current time
+    M[1] = 10;          // Empty tables
+    M[2] = 0;           // Orders pending for cooks
+    
+    // Initialize cook queue
+    M[C_1] = C_1 + 2;   // Front pointer
+    M[C_1 + 1] = C_1 + 2; // Back pointer
+    
+    // Initialize waiter memory areas
+    for (int i = 0; i < MAX_WAITERS; i++) {
+        int base = W_1 + 200 * i;
+        M[base] = -1;           // No food ready flag
+        M[base + 1] = 0;        // No waiting orders
+        M[base + 2] = base + 4; // Front pointer
+        M[base + 3] = base + 4; // Back pointer
+    }
+    
+    // Create semaphores
+    mutexid = semget(key + 1, 1, 0777 | IPC_CREAT);
+    cookid = semget(key + 2, 1, 0777 | IPC_CREAT);
+    waiterid = semget(key + 3, MAX_WAITERS, 0777 | IPC_CREAT);
+    customerid = semget(key + 4, MAX_CUSTOMERS, 0777 | IPC_CREAT);
+    
+    // Initialize semaphores
     semctl(mutexid, 0, SETVAL, 1);
     semctl(cookid, 0, SETVAL, 0);
     for (int i = 0; i < MAX_WAITERS; i++) {
@@ -134,47 +187,24 @@ int main() {
     for (int i = 0; i < MAX_CUSTOMERS; i++) {
         semctl(customerid, i, SETVAL, 0);
     }
-    // Enter all these variables in first 100 locations of shared memory
-    // M[0] = time, M[1] = number of empty tables, M[2] = number of orders pending, M[3]-M[12] = table status
-    M[0] = 0;
-    M[1] = 10;
-    M[2] = 0;
-    M[3] = 0;
+    
+    // Store semaphore IDs in shared memory for other processes
     M[MUTEX] = mutexid;
     M[MUTEX + 1] = cookid;
     M[MUTEX + 2] = waiterid;
     M[MUTEX + 3] = customerid;
-
-    // initializations regarding queue values 
-    M[W_1] = -1;
-    M[W_1 + 1] = 0;
-    M[W_1 + 2] = W_1 + 4;
-    M[W_1+3] = W_1+4;
-    M[W_2] = -1;
-    M[W_2+1] =0;
-    M[W_2+2] = W_2+4;
-    M[W_2+3] = W_2+4;
-    M[W_3] = -1;
-    M[W_3+1]=0;
-    M[W_3+2] = W_3+4;
-    M[W_3+3] = W_3+4;
-    M[W_4] = -1;
-    M[W_4+1]=0;
-    M[W_4+2] = W_4+4;
-    M[W_4+3] = W_4+4;
-    M[W_5] = -1;
-    M[W_5+1]=0;
-    M[W_5+2] = W_5+4;
-    M[W_5+3] = W_5+4;
-    M[C_1] = C_1+2;
-    M[C_1 + 1] = C_1+2;
-
+    
+    // Fork cook processes
     for (int i = 0; i < MAX_COOKS; i++) {
         if (fork() == 0) {
             cmain(i);
             exit(0);
-        } else {
-            // wait(&status);
         }
     }
+    
+    // Wait for all cook processes to complete
+    while (wait(NULL) > 0);
+    
+    // Do not clean up IPC resources here - leave it to customer.c
+    return 0;
 }
