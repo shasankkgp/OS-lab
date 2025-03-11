@@ -48,21 +48,25 @@ void print_time() {
 // customerid - 200 semaphores
 // mutexid - 1 semaphore
 
-void cmain( int cook_no) {
+void cmain(int cook_no) {
     char cook_name = 'C' + cook_no;
 
     // code for cooks 
     print_time();
-    printf("Cook %c is ready\n",cook_name);
+    if (cook_no == 0) {
+        printf(" Cook %c is ready\n", cook_name);
+    } else {
+        printf(" \tCook %c is ready\n", cook_name);
+    }
 
-    while (M[0] < 240 || M[2]>0 ) {   // repeat part done
+    while (M[0] <= 240 || M[2]>0) {   // repeat part done
         P(cookid);     // wait untill woken up , which waiter have woke me up ? 
         // print_time();
         // printf("Cook %c: Woke up\n",'C' + cook_no);
         P(mutexid);
         // printf("Got the mutex key\n");
 
-        if( M[2]<=0 ){
+        if (M[2]<=0) {
             V(mutexid);
             continue;
         }
@@ -83,26 +87,37 @@ void cmain( int cook_no) {
         int current_time = M[0];
         V(mutexid);
 
-        int cook_time = count * 5 ;   // preparing food for each time
+        int cook_time = count * 5;   // preparing food for each time
 
         // print statement
         print_time();
-        printf("Cook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 'C' + cook_no, 'U' + waiter_no, customer_id, count);
+        if (cook_no == 0) {
+            printf(" Cook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 
+                   cook_name, 'U' + waiter_no, customer_id, count);
+        } else {
+            printf(" \tCook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 
+                   cook_name, 'U' + waiter_no, customer_id, count);
+        }
 
         usleep(cook_time*100);
 
         P(mutexid);
         // printf("Got the mutex key\n");
 
-        if( M[0] < current_time + cook_time ){
+        if (M[0] < current_time + cook_time) {
             M[0] = current_time + cook_time;
         }
 
         //print statement
         print_time();
-        printf("Cook %c: Prepared order (Waiter %c,Customer %d, Count %d)\n", 'C' + cook_no, 'U' + waiter_no, customer_id, count);
+        if (cook_no == 0) {
+            printf(" Cook %c: Prepared order (Waiter %c, Customer %d, Count %d)\n", 
+                   cook_name, 'U' + waiter_no, customer_id, count);
+        } else {
+            printf(" \tCook %c: Prepared order (Waiter %c, Customer %d, Count %d)\n", 
+                   cook_name, 'U' + waiter_no, customer_id, count);
+        }
 
-        
         M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
 
         V(mutexid);
@@ -114,9 +129,13 @@ void cmain( int cook_no) {
     }   
 
     print_time();
-    printf("Cook %c: leaving\n",cook_name);
+    if (cook_no == 0) {
+        printf(" Cook %c: Leaving\n", cook_name);
+    } else {
+        printf(" \tCook %c: Leaving\n", cook_name);
+    }
 
-    if( cook_no == MAX_COOKS - 1 ){
+    if (cook_no == MAX_COOKS - 1) {
         // printf("All cooks are leaving\n");
         for (int i = 0; i < MAX_WAITERS; i++) {
             vop.sem_num = i;   

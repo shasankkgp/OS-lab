@@ -42,6 +42,13 @@ void print_time() {
     printf("[%02d:%02d %s]", display_hour, minutes, period);
 }
 
+// Function to print indentation based on waiter number
+void print_indent(int waiter_no) {
+    for (int i = 0; i < waiter_no; i++) {
+        printf("\t");
+    }
+}
+
 // cookid - 1 semaphore
 // waiterid - 5 semaphores
 // customerid - 200 semaphores
@@ -61,9 +68,10 @@ void wmain(int waiter_no) {  // Pass waiter number
     V(mutexid);
 
     print_time();
+    print_indent(waiter_no);
     printf("Waiter %c is ready\n", 'U' + waiter_no);
 
-    while (M[0] < 240 || M[waiter_base+1]>0 ) {     
+    while (M[0] <= 240 || M[waiter_base+1]>0 || M[waiter_base] != -1) {
         pop.sem_num = waiter_no;  // Specify which semaphore to decrement
         P(waiterid);  // Wait for signal on specific waiter semaphore
         // print_time();
@@ -78,7 +86,8 @@ void wmain(int waiter_no) {  // Pass waiter number
             M[waiter_base] = -1;   // clear the flag
             // print statement
             print_time();
-            printf("Waiter %c: Serrving food to Customer %d\n", 'U' + waiter_no, customer_id);
+            print_indent(waiter_no);
+            printf("Waiter %c: Serving food to Customer %d\n", 'U' + waiter_no, customer_id);
 
             // printf("released the mutex lock\n");
             V(mutexid);
@@ -112,6 +121,7 @@ void wmain(int waiter_no) {  // Pass waiter number
 
             // print statement
             print_time();
+            print_indent(waiter_no);
             printf("Waiter %c: Placing order for Customer %d (count = %d)\n", 'U' + waiter_no, customer_id, count);
 
             M[2]++;   // increase in orders pending
@@ -130,6 +140,7 @@ void wmain(int waiter_no) {  // Pass waiter number
         }
     }
     print_time();
+    print_indent(waiter_no);
     printf("Waiter %c leaving (no more customers to serve)\n", 'U' + waiter_no);
 }
 

@@ -71,11 +71,10 @@ void cmain(int id, int arrival_time, int count) {
     // code for customers 
     if (M[0] > 240){
         print_time();
-        printf("Customer %d leaves (restaurant is closed)\n", id);
+        printf("Customer %d leaves (late arrival)\n", id);
         return;
     }
     
-
     print_time();
     printf("Customer %d arrives (count = %d)\n", id, count);
 
@@ -83,12 +82,9 @@ void cmain(int id, int arrival_time, int count) {
     if( M[1] == 0 ){
         V(mutexid);
         print_time();
-        printf("Customer %d leaves (no empty table)\n", id);
+        printf("\t\t\t\t\tCustomer %d leaves (no empty table)\n", id);
         return;
     }
-
-    // print_time();
-    // printf("Got the mutex lock\n");
 
     int current_time = M[0];
 
@@ -103,24 +99,28 @@ void cmain(int id, int arrival_time, int count) {
     M[waiter_base+3] = back+2;  // update back of the queue
     M[waiter_base+1]++;  // increase the waiting orders for the waiter
 
-    // printf("Released the mutex lock\n");
     V(mutexid);
         
-
     vop.sem_num = waiter_index;  // specify which waiter to wake up
-    // printf("Customer %d signaling waiter index: %d\n", id, pop.sem_num);
     V(waiterid);   // signal to the waiter to take order
 
-        // place order statement
+    // place order statement
     print_time();
-    printf("Customer %d: Order placed to Waiter %c\n", id, 'U' + (id-1)%5);
+    printf("\tCustomer %d: Order placed to Waiter %c\n", id, 'U' + (id-1)%5);
 
     pop.sem_num = id-1;  // specify which customer to wake up
+    
+    // Store the time when order was placed
+    int order_time = M[0];
+    
     P(customerid);  // wait for order to come 
+
+    // Calculate waiting time
+    int waiting_time = M[0] - order_time;
 
     // order is ready statement
     print_time();
-    printf("Customer %d: Order is ready\n", id);
+    printf("\t\tCustomer %d gets food [Waiting time = %d]\n", id, waiting_time);
 
     P(mutexid);
     current_time = M[0];
@@ -140,7 +140,7 @@ void cmain(int id, int arrival_time, int count) {
 
     // eat food statement
     print_time();
-    printf("Customer %d finishes eating and leaves\n", id);
+    printf("\t\t\tCustomer %d finishes eating and leaves\n", id);
     V(mutexid);
 }
 
