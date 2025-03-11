@@ -130,7 +130,7 @@ void wmain(int waiter_no) {  // Pass waiter number
             print_indent(waiter_no);
             printf("Waiter %c: Placing order for Customer %d (count = %d)\n", 'U' + waiter_no, customer_id, count);
 
-            M[2]++;   // increase in orders pending
+            M[3]++;   // increase in orders pending
             int back = M[C_1 + 1];   // back of cooks queue
             M[back] = waiter_no;  // Store which waiter is serving
             M[back + 1] = customer_id;

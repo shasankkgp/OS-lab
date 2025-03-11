@@ -94,9 +94,9 @@ void cmain(int id, int arrival_time, int count) {
 
     M[1]--;  // decrement in empty tables
 
-    int waiter_index = M[3];
+    int waiter_index = M[2];
     // int waiter_index = (id-1)%5;
-    M[3]=(M[3]+1)%MAX_WAITERS;
+    M[2]=(M[2]+1)%MAX_WAITERS;
     int waiter_base = W_1 + 200 * waiter_index;
 
     int back = M[waiter_base+3];  // read the back of the queue

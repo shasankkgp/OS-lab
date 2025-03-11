@@ -7,3 +7,9 @@ db:
 	./gencustomers > customers.txt
 clean:
 	-rm -f cook waiter customer gencustomers
+cook:
+	./cook > transcript_cook.txt
+waiter:
+	./waiter > transcript_waiter.txt
+customer:
+	./customer > transcript_customer.txt

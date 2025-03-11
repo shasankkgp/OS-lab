@@ -59,7 +59,7 @@ void cmain(int cook_no) {
         printf(" \tCook %c is ready\n", cook_name);
     }
 
-    while ( M[0] <= 240 || M[2]>0 ) {   // repeat part done
+    while ( M[0] <= 240 || M[3]>0 ) {   // repeat part done
         pop.sem_num = 0;
         P(cookid);     // wait untill woken up , which waiter have woke me up ? 
         // print_time();
@@ -68,7 +68,7 @@ void cmain(int cook_no) {
         P(mutexid);
         // printf("Got the mutex key\n");
 
-        if (M[2]<=0) {
+        if (M[3]<=0) {
             vop.sem_num = 0;
             V(mutexid);
             continue;
@@ -88,7 +88,7 @@ void cmain(int cook_no) {
         // }
 
         M[C_1] = front+3;   // update front of the queue
-        M[2]--;   // decrease the orders pending
+        M[3]--;   // decrease the orders pending
         
         
 
@@ -185,7 +185,7 @@ int main() {
     
     // Initialize shared memory
     // Enter all these variables in first 100 locations of shared memory
-    // M[0] = time, M[1] = number of empty tables, M[3]=next wieter id, M[2] = number of orders pending ,M[4]-M[12] = table status
+    // M[0] = time, M[1] = number of empty tables, M[2]=next wieter id, M[3] = number of orders pending ,M[4]-M[12] = table status
     M[0] = 0;           // Current time
     M[1] = 10;          // Empty tables
     M[2] = 0;           // Orders pending for cooks
