@@ -69,14 +69,18 @@ void handler(int sig) {
 
 void cmain(int id, int arrival_time, int count) {
     // code for customers 
+    pop.sem_num = 0;
     P(mutexid);
     if (M[0] > 240){
+        vop.sem_num = 0;
+        V(mutexid);
         print_time();
         printf("Customer %d leaves (late arrival)\n", id);
         return;
     }
 
     if( M[1] == 0 ){
+        vop.sem_num = 0;
         V(mutexid);
         print_time();
         printf("\t\t\t\t\tCustomer %d leaves (no empty table)\n", id);
@@ -101,6 +105,7 @@ void cmain(int id, int arrival_time, int count) {
     M[waiter_base+3] = back+2;  // update back of the queue
     M[waiter_base+1]++;  // increase the waiting orders for the waiter
 
+    vop.sem_num = 0;
     V(mutexid);
         
     vop.sem_num = waiter_index;  // specify which waiter to wake up
@@ -110,6 +115,7 @@ void cmain(int id, int arrival_time, int count) {
     pop.sem_num = id-1;  // specify which customer to wake up
     P(customerid);  // wait for order to come 
 
+    pop.sem_num = 0;
     P(mutexid);
 
     
@@ -118,11 +124,13 @@ void cmain(int id, int arrival_time, int count) {
     print_time();
     printf("\tCustomer %d: Order placed to Waiter %c\n", id, 'U' + (id-1)%5);
 
+    vop.sem_num = 0;
     V(mutexid);
     
     pop.sem_num = id-1;  // specify which customer to wake up
     P(customerid);  // wait for order to come 
 
+    pop.sem_num = 0;
     P(mutexid);
 
     // Calculate waiting time
@@ -132,16 +140,20 @@ void cmain(int id, int arrival_time, int count) {
     print_time();
     printf("\t\tCustomer %d gets food [Waiting time = %d]\n", id, waiting_time);
 
+    vop.sem_num = 0;
     V(mutexid);
 
+    pop.sem_num = 0;
     P(mutexid);
     current_time = M[0];
+    vop.sem_num = 0;
     V(mutexid);
 
     // eat food, eating takes 30 min time 
     int time_to_sleep = 30 * 100000;  // 30 min time
     usleep(time_to_sleep);
     
+    pop.sem_num = 0;
     P(mutexid);
 
     if (M[0] < current_time + 30) {
@@ -153,6 +165,7 @@ void cmain(int id, int arrival_time, int count) {
     // eat food statement
     print_time();
     printf("\t\t\tCustomer %d finishes eating and leaves\n", id);
+    vop.sem_num = 0;
     V(mutexid);
 }
 
@@ -205,8 +218,10 @@ int main() {
         }
         
         // Update the system time
+        vop.sem_num = 0;
         P(mutexid);
         M[0] = arrival_time;
+        vop.sem_num = 0;
         V(mutexid);
         
         last_arrival_time = arrival_time;

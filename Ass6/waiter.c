@@ -58,14 +58,15 @@ void wmain(int waiter_no) {  // Pass waiter number
     // code for waiters
     int waiter_base = W_1 + 200 * waiter_no;
 
-    P(mutexid);
-    // Set up initial queue pointers if not already done
-    if (M[waiter_base + 2] == 0 && M[waiter_base + 3] == 0) {
-        // Initialize front and back pointers
-        M[waiter_base + 2] = waiter_base + 4;  // front
-        M[waiter_base + 3] = waiter_base + 4;  // back
-    }
-    V(mutexid);
+    // pop.sem_num = 0;
+    // P(mutexid);
+    // // Set up initial queue pointers if not already done
+    // if (M[waiter_base + 2] == 0 && M[waiter_base + 3] == 0) {
+    //     // Initialize front and back pointers
+    //     M[waiter_base + 2] = waiter_base + 4;  // front
+    //     M[waiter_base + 3] = waiter_base + 4;  // back
+    // }
+    // V(mutexid);
 
     print_time();
     print_indent(waiter_no);
@@ -77,6 +78,7 @@ void wmain(int waiter_no) {  // Pass waiter number
         // print_time();
         // printf("Waiter %c woke up\n", 'U' + waiter_no);
         
+        pop.sem_num = 0;
         P(mutexid);
         // printf("got the mutex key\n");
         int current_time = M[0];
@@ -84,6 +86,7 @@ void wmain(int waiter_no) {  // Pass waiter number
         if ( M[waiter_base] != -1 ) {  // if cook is the one to wake up 
             int customer_id = M[waiter_base];
             M[waiter_base] = -1;   // clear the flag
+            M[waiter_base + 1]--;    // decrease the waiting orders for the waiter
             // print statement
             print_time();
             print_indent(waiter_no);
@@ -93,6 +96,7 @@ void wmain(int waiter_no) {  // Pass waiter number
             V(customerid);
 
             // printf("released the mutex lock\n");
+            vop.sem_num = 0;
             V(mutexid);
 
         } else if(M[waiter_base+1]>0){     // if customer is the one to wake up
@@ -105,15 +109,17 @@ void wmain(int waiter_no) {  // Pass waiter number
             int count = M[front + 1];
 
             M[waiter_base+ 2] = front +2;  // update front of the queue
-            M[waiter_base + 1]--;    // decrease the waiting orders for the waiter
+            
             
             current_time = M[0];
 
+            vop.sem_num = 0;
             V(mutexid);
             // printf("released the mutex lock\n");
             
             usleep(100000); // 100 ms for taking the order
 
+            pop.sem_num = 0;
             P(mutexid);
             if( M[0] < current_time + 1 ){
                 M[0] = current_time + 1;   // update the current time
@@ -134,12 +140,15 @@ void wmain(int waiter_no) {  // Pass waiter number
             vop.sem_num = customer_id - 1;  // signal the customer
             V(customerid); 
 
+            vop.sem_num = 0;
             V(mutexid);
 
             // printf("released the mutex lock\n");
             // printf("Signaling the cook\n");
+            vop.sem_num = 0;
             V(cookid);    // signal the cook
         }else{
+            vop.sem_num = 0;
             V(mutexid);
         }
     }
