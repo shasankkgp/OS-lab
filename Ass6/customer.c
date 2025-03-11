@@ -69,28 +69,30 @@ void handler(int sig) {
 
 void cmain(int id, int arrival_time, int count) {
     // code for customers 
+    P(mutexid);
     if (M[0] > 240){
         print_time();
         printf("Customer %d leaves (late arrival)\n", id);
         return;
     }
-    
-    print_time();
-    printf("Customer %d arrives (count = %d)\n", id, count);
 
-    P(mutexid);
     if( M[1] == 0 ){
         V(mutexid);
         print_time();
         printf("\t\t\t\t\tCustomer %d leaves (no empty table)\n", id);
         return;
     }
+    
+    print_time();
+    printf("Customer %d arrives (count = %d)\n", id, count);
 
     int current_time = M[0];
 
     M[1]--;  // decrement in empty tables
 
-    int waiter_index = (id-1)%5;
+    int waiter_index = M[3];
+    // int waiter_index = (id-1)%5;
+    M[3]=(M[3]+1)%MAX_WAITERS;
     int waiter_base = W_1 + 200 * waiter_index;
 
     int back = M[waiter_base+3];  // read the back of the queue
@@ -103,31 +105,41 @@ void cmain(int id, int arrival_time, int count) {
         
     vop.sem_num = waiter_index;  // specify which waiter to wake up
     V(waiterid);   // signal to the waiter to take order
+    
+
+    pop.sem_num = id-1;  // specify which customer to wake up
+    P(customerid);  // wait for order to come 
+
+    P(mutexid);
+
+    
 
     // place order statement
     print_time();
     printf("\tCustomer %d: Order placed to Waiter %c\n", id, 'U' + (id-1)%5);
 
+    V(mutexid);
+    
     pop.sem_num = id-1;  // specify which customer to wake up
-    
-    // Store the time when order was placed
-    int order_time = M[0];
-    
     P(customerid);  // wait for order to come 
 
+    P(mutexid);
+
     // Calculate waiting time
-    int waiting_time = M[0] - order_time;
+    int waiting_time = M[0] - current_time;
 
     // order is ready statement
     print_time();
     printf("\t\tCustomer %d gets food [Waiting time = %d]\n", id, waiting_time);
+
+    V(mutexid);
 
     P(mutexid);
     current_time = M[0];
     V(mutexid);
 
     // eat food, eating takes 30 min time 
-    int time_to_sleep = 30 * 100;  // 30 min time
+    int time_to_sleep = 30 * 100000;  // 30 min time
     usleep(time_to_sleep);
     
     P(mutexid);
@@ -187,7 +199,7 @@ int main() {
         }
 
         // Wait for the time difference between current and last customer
-        int delay = (arrival_time - last_arrival_time) * 100;
+        int delay = (arrival_time - last_arrival_time) * 100000;
         if (delay > 0) {
             usleep(delay);
         }

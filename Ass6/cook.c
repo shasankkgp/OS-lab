@@ -71,21 +71,23 @@ void cmain(int cook_no) {
             continue;
         }
 
+        int current_time = M[0];
+
         int front = M[C_1];    // read cooking request 
         int waiter_no = M[front];
         int customer_id = M[front + 1];
         int count = M[front + 2];
 
-        if (customer_id <= 0 || count <= 0) {
-            // Invalid order, skip it
-            V(mutexid);
-            continue;
-        }
+        // if (customer_id <= 0 || count <= 0) {
+        //     // Invalid order, skip it
+        //     V(mutexid);
+        //     continue;
+        // }
 
         M[C_1] = front+3;   // update front of the queue
         M[2]--;   // decrease the orders pending
-        int current_time = M[0];
-        V(mutexid);
+        
+        
 
         int cook_time = count * 5;   // preparing food for each time
 
@@ -98,8 +100,10 @@ void cmain(int cook_no) {
             printf(" \tCook %c: Preparing order (Waiter %c, Customer %d, Count %d)\n", 
                    cook_name, 'U' + waiter_no, customer_id, count);
         }
+        
+        V(mutexid);
 
-        usleep(cook_time*100);
+        usleep(cook_time*100000);
 
         P(mutexid);
         // printf("Got the mutex key\n");
@@ -120,11 +124,13 @@ void cmain(int cook_no) {
 
         M[W_1+200*waiter_no] = customer_id;   // customer id is stored in the waiter's location 
 
-        V(mutexid);
+        
 
         vop.sem_num = waiter_no;    // signal the exact waiter
         // printf("Signaling waiter %c\n", 'U' + waiter_no);
         V(waiterid);        // signaling the waiter
+
+        V(mutexid);
         
     }   
 
@@ -173,10 +179,11 @@ int main() {
     
     // Initialize shared memory
     // Enter all these variables in first 100 locations of shared memory
-    // M[0] = time, M[1] = number of empty tables, M[2] = number of orders pending, M[3]-M[12] = table status
+    // M[0] = time, M[1] = number of empty tables, M[2] = number of orders pending, M[3]-next wieter id,M[4]-M[12] = table status
     M[0] = 0;           // Current time
     M[1] = 10;          // Empty tables
     M[2] = 0;           // Orders pending for cooks
+    M[3] = 0;           // Next weiter id
     
     // Initialize cook queue
     M[C_1] = C_1 + 2;   // Front pointer
