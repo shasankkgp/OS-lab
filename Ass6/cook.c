@@ -50,6 +50,7 @@ void print_time() {
 // mutexid - 1 semaphore
 
 void cmain(int cook_no) {
+    M[4 + cook_no] = 1;   // set the status of the cook
     char cook_name = 'C' + cook_no;
 
     // code for cooks 
@@ -145,20 +146,32 @@ void cmain(int cook_no) {
 
     print_time();
     if (cook_no == 0) {
+        M[4] = 0;   // set the status of the cook
+        if (M[4] == 0 && M[5] == 0) {
+            // printf("All cooks are leaving\n");
+            for (int i = 0; i < MAX_WAITERS; i++) {
+                vop.sem_num = i;   
+                V(waiterid);    // signal all the waiters
+            }
+        }
         printf(" Cook %c: Leaving\n", cook_name);
         fflush(stdout);
+        exit(EXIT_SUCCESS);
     } else {
+        M[5] = 0;   // set the status of the cook
+        if (M[4] == 0 && M[5] == 0) {
+            // printf("All cooks are leaving\n");
+            for (int i = 0; i < MAX_WAITERS; i++) {
+                vop.sem_num = i;   
+                V(waiterid);    // signal all the waiters
+            }
+        }
         printf(" \tCook %c: Leaving\n", cook_name);
         fflush(stdout);
+        exit(0);
     }
 
-    if (cook_no == MAX_COOKS - 1) {
-        // printf("All cooks are leaving\n");
-        for (int i = 0; i < MAX_WAITERS; i++) {
-            vop.sem_num = i;   
-            V(waiterid);    // signal all the waiters
-        }
-    }
+    
 }
 
 int main() {
@@ -190,11 +203,13 @@ int main() {
     
     // Initialize shared memory
     // Enter all these variables in first 100 locations of shared memory
-    // M[0] = time, M[1] = number of empty tables, M[2]=next wieter id, M[3] = number of orders pending ,M[4]-M[12] = table status
+    // M[0] = time, M[1] = number of empty tables, M[2]=next wieter id, M[3] = number of orders pending ,M[4],M[5] = status of cooks
     M[0] = 0;           // Current time
     M[1] = 10;          // Empty tables
     M[2] = 0;           // Orders pending for cooks
     M[3] = 0;           // Next weiter id
+    M[4] = 0;           // Status of cook 1 
+    M[5] = 0;           // Status of cook 2
     
     // Initialize cook queue
     M[C_1] = C_1 + 2;   // Front pointer

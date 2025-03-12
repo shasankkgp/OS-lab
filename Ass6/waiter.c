@@ -75,7 +75,7 @@ void wmain(int waiter_no) {  // Pass waiter number
     printf("Waiter %c is ready\n", 'U' + waiter_no);
     fflush(stdout);
 
-    while (M[0] <= 240 || M[waiter_base+1]>0 || M[waiter_base] != -1) {
+    while (M[0] <= 240 || (M[waiter_base+1]>0) || (M[waiter_base] != -1)) {
         pop.sem_num = waiter_no;  // Specify which semaphore to decrement
         P(waiterid);  // Wait for signal on specific waiter semaphore
         // print_time();
