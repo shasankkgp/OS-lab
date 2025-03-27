@@ -39,36 +39,83 @@ int page_accesses;       // Total number of page accesses
 int page_faults;         // Total number of page faults
 int swap_operations;     // Total number of swap operations
 
-// Function prototypes
-void read_input_file();
-void initialize_kernel();
-void run_simulation();
-int binary_search(int proc_id);
-int handle_page_fault(int proc_id, int page_num);
-void swap_out_process(int proc_id);
-void swap_in_process(int proc_id);
-void enqueue_ready(int proc_id);
-int dequeue_ready();
-void enqueue_swap(int proc_id);
-int dequeue_swap();
-void print_statistics();
 
-int main() {
-    read_input_file();
-    initialize_kernel();
-    run_simulation();
-    print_statistics();
+void enqueue_ready(int proc_id) {
+    ready_queue[ready_rear] = proc_id;
+    ready_rear = (ready_rear + 1) % n;
+    ready_count++;
+}
+
+int dequeue_ready() {
+    int proc_id = ready_queue[ready_front];
+    ready_front = (ready_front + 1) % n;
+    ready_count--;
+    return proc_id;
+}
+
+void enqueue_swap(int proc_id) {
+    swap_queue[swap_rear] = proc_id;
+    swap_rear = (swap_rear + 1) % n;
+    swap_count++;
+}
+
+int dequeue_swap() {
+    int proc_id = swap_queue[swap_front];
+    swap_front = (swap_front + 1) % n;
+    swap_count--;
+    return proc_id;
+}
+
+void swap_in_process(int proc_id) {
+    processes[proc_id].swapped_out = 0;
     
-    // Clean up
-    for (int i = 0; i < n; i++) {
-        free(processes[i].search_keys);
+    // Allocate essential pages
+    for (int i = 0; i < ESSENTIAL_PAGES; i++) {
+        int frame = free_frames[--free_frames_count];
+        processes[proc_id].page_table[i] = (1 << 15) | frame;
     }
-    free(processes);
-    free(free_frames);
-    free(ready_queue);
-    free(swap_queue);
     
-    return 0;
+    // Only increment active_processes if it's below 40
+    if (active_processes < 40) {
+        active_processes++;
+    }
+    
+    printf("+++ Swapping in process %4d  [%d active processes]\n", proc_id, active_processes);
+}
+
+
+// Swap out a process
+void swap_out_process(int proc_id) {
+    swap_operations++;
+    processes[proc_id].swapped_out = 1;
+    
+    // Free essential pages
+    for (int i = 0; i < ESSENTIAL_PAGES; i++) {
+        if (processes[proc_id].page_table[i] & (1 << 15)) {
+            int frame = processes[proc_id].page_table[i] & 0x7FFF;
+            free_frames[free_frames_count++] = frame;
+            processes[proc_id].page_table[i] = 0; // Invalid
+        }
+    }
+    
+    // Free array pages
+    for (int i = ESSENTIAL_PAGES; i < PAGE_TABLE_SIZE; i++) {
+        if (processes[proc_id].page_table[i] & (1 << 15)) {
+            int frame = processes[proc_id].page_table[i] & 0x7FFF;
+            free_frames[free_frames_count++] = frame;
+            processes[proc_id].page_table[i] = 0; // Invalid
+        }
+    }
+    
+    active_processes--;
+    if (active_processes < min_active_processes) {
+        min_active_processes = active_processes;
+    }
+    
+    printf("+++ Swapping out process %4d  [%d active processes]\n", proc_id, active_processes);
+    
+    // Add to swap queue
+    enqueue_swap(proc_id);
 }
 
 // Read input from file
@@ -151,6 +198,60 @@ void initialize_kernel() {
     printf("+++ Kernel data initialized\n");
 }
 
+// Handle page fault
+int handle_page_fault(int proc_id, int page_num) {
+    if (free_frames_count > 0) {
+        // Allocate a free frame
+        int frame = free_frames[--free_frames_count];
+        processes[proc_id].page_table[page_num] = (1 << 15) | frame;
+        return 0; // Success
+    } else {
+        // No free frames, need to swap out a process
+        swap_out_process(proc_id);
+        return -1; // Process swapped out
+    }
+}
+
+// Perform binary search for the current search key
+int binary_search(int proc_id) {
+    Process *proc = &processes[proc_id];
+    int search_value = proc->search_keys[proc->current_search];
+    
+    int left = 0;
+    int right = proc->size - 1;
+    
+    while (left < right) {
+        int mid = (left + right) / 2;
+        
+        // Access A[mid]
+        page_accesses++;
+        
+        // Calculate page number for A[mid]
+        int page_num = ESSENTIAL_PAGES + (mid * sizeof(int)) / PAGE_SIZE;
+        
+        // Check if page is valid
+        if (!(proc->page_table[page_num] & (1 << 15))) {
+            // Page fault
+            page_faults++;
+            
+            // Try to load the page
+            if (handle_page_fault(proc_id, page_num) != 0) {
+                // Process got swapped out
+                return -1;
+            }
+        }
+        
+        // For simulation, we pretend A[mid] = mid
+        if (search_value <= mid) {
+            right = mid;
+        } else {
+            left = mid + 1;
+        }
+    }
+    
+    return 0; // Search completed successfully
+}
+
 // Run the simulation
 void run_simulation() {
     int completed_processes = 0;
@@ -219,136 +320,6 @@ void run_simulation() {
     }
 }
 
-// Perform binary search for the current search key
-int binary_search(int proc_id) {
-    Process *proc = &processes[proc_id];
-    int search_value = proc->search_keys[proc->current_search];
-    
-    int left = 0;
-    int right = proc->size - 1;
-    
-    while (left < right) {
-        int mid = (left + right) / 2;
-        
-        // Access A[mid]
-        page_accesses++;
-        
-        // Calculate page number for A[mid]
-        int page_num = ESSENTIAL_PAGES + (mid * sizeof(int)) / PAGE_SIZE;
-        
-        // Check if page is valid
-        if (!(proc->page_table[page_num] & (1 << 15))) {
-            // Page fault
-            page_faults++;
-            
-            // Try to load the page
-            if (handle_page_fault(proc_id, page_num) != 0) {
-                // Process got swapped out
-                return -1;
-            }
-        }
-        
-        // For simulation, we pretend A[mid] = mid
-        if (search_value <= mid) {
-            right = mid;
-        } else {
-            left = mid + 1;
-        }
-    }
-    
-    return 0; // Search completed successfully
-}
-
-// Handle page fault
-int handle_page_fault(int proc_id, int page_num) {
-    if (free_frames_count > 0) {
-        // Allocate a free frame
-        int frame = free_frames[--free_frames_count];
-        processes[proc_id].page_table[page_num] = (1 << 15) | frame;
-        return 0; // Success
-    } else {
-        // No free frames, need to swap out a process
-        swap_out_process(proc_id);
-        return -1; // Process swapped out
-    }
-}
-
-// Swap out a process
-void swap_out_process(int proc_id) {
-    swap_operations++;
-    processes[proc_id].swapped_out = 1;
-    
-    // Free essential pages
-    for (int i = 0; i < ESSENTIAL_PAGES; i++) {
-        if (processes[proc_id].page_table[i] & (1 << 15)) {
-            int frame = processes[proc_id].page_table[i] & 0x7FFF;
-            free_frames[free_frames_count++] = frame;
-            processes[proc_id].page_table[i] = 0; // Invalid
-        }
-    }
-    
-    // Free array pages
-    for (int i = ESSENTIAL_PAGES; i < PAGE_TABLE_SIZE; i++) {
-        if (processes[proc_id].page_table[i] & (1 << 15)) {
-            int frame = processes[proc_id].page_table[i] & 0x7FFF;
-            free_frames[free_frames_count++] = frame;
-            processes[proc_id].page_table[i] = 0; // Invalid
-        }
-    }
-    
-    active_processes--;
-    if (active_processes < min_active_processes) {
-        min_active_processes = active_processes;
-    }
-    
-    printf("+++ Swapping out process %4d  [%d active processes]\n", proc_id, active_processes);
-    
-    // Add to swap queue
-    enqueue_swap(proc_id);
-}
-
-// Swap in a process
-void swap_in_process(int proc_id) {
-    processes[proc_id].swapped_out = 0;
-    
-    // Allocate essential pages
-    for (int i = 0; i < ESSENTIAL_PAGES; i++) {
-        int frame = free_frames[--free_frames_count];
-        processes[proc_id].page_table[i] = (1 << 15) | frame;
-    }
-    
-    active_processes++;
-    printf("+++ Swapping in process %4d  [%d active processes]\n", proc_id, active_processes);
-}
-
-// Queue operations for ready queue
-void enqueue_ready(int proc_id) {
-    ready_queue[ready_rear] = proc_id;
-    ready_rear = (ready_rear + 1) % n;
-    ready_count++;
-}
-
-int dequeue_ready() {
-    int proc_id = ready_queue[ready_front];
-    ready_front = (ready_front + 1) % n;
-    ready_count--;
-    return proc_id;
-}
-
-// Queue operations for swap queue
-void enqueue_swap(int proc_id) {
-    swap_queue[swap_rear] = proc_id;
-    swap_rear = (swap_rear + 1) % n;
-    swap_count++;
-}
-
-int dequeue_swap() {
-    int proc_id = swap_queue[swap_front];
-    swap_front = (swap_front + 1) % n;
-    swap_count--;
-    return proc_id;
-}
-
 // Print final statistics
 void print_statistics() {
     printf("+++ Page access summary\n");
@@ -356,4 +327,22 @@ void print_statistics() {
     printf("\tTotal number of page faults    =  %d\n", page_faults);
     printf("\tTotal number of swaps          =  %d\n", swap_operations);
     printf("\tDegree of multiprogramming     =  %d\n", min_active_processes);
+}
+
+int main() {
+    read_input_file();
+    initialize_kernel();
+    run_simulation();
+    print_statistics();
+    
+    // Clean up
+    for (int i = 0; i < n; i++) {
+        free(processes[i].search_keys);
+    }
+    free(processes);
+    free(free_frames);
+    free(ready_queue);
+    free(swap_queue);
+    
+    return 0;
 }
