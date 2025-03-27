@@ -1,10 +1,12 @@
+// i am changing this to test something 
+
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string.h>   /* Needed for strcpy() */
-#include <time.h>     /* Needed for time() to seed the RNG */
+#include <time.h>     /* Needed for time() */
 #include <unistd.h>   /* Needed for sleep() and usleep() */
 #include <pthread.h>  /* Needed for all pthread library calls */
-#include <stdint.h>   /* Needed for intptr_t */
 
 typedef struct{
     int value;
@@ -19,20 +21,30 @@ semaphore boat;
 semaphore raider;
 pthread_barrier_t EOS;
 
-int n, m;
-int *vtime;
-int *rtime;
+int vtime[20]={20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,20,115,110};
+int rtime[20]={15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,20,25};
+
+
+int n,m;
+// int *vtime;
+// int *rtime;
 int *BA;
 int *BC;
 int *BT;
 pthread_barrier_t *BB;  // Barriers for boat-visitor handshaking
 int remaining_visitors = 0;  // Track remaining visitors for EOS synchronization
+int program_ending = 0;     // To indicate program ending to boat threads other than the last one
+int active_visitors = 0;    // Track visitors that are currently in the system
+pthread_mutex_t active_mtx; // Mutex for protecting the active_visitors counter
+pthread_t *boat_threads;    // Array to store boat thread IDs
+pthread_t *visitor_threads; // Array to store visitor thread IDs
+int max_simulation_time = 600; // Maximum simulation time in seconds (10 minutes)
 
 void P(semaphore *s) {                      // wait function
     pthread_mutex_lock(&s->mtx);
     s->value--;
     if (s->value < 0) {
-        pthread_cond_wait(&s->cv, &s->mtx);       // leaves lock and wait for signal, not a busy wait 
+        pthread_cond_wait(&s->cv, &s->mtx);       // leaves lock and wait for signal , not a busy wait 
     }
     pthread_mutex_unlock(&s->mtx);
 }
@@ -46,102 +58,233 @@ void V(semaphore *s) {                         // signal function
     pthread_mutex_unlock(&s->mtx);
 }
 
-void *boat_thread(void *arg) {
-    int boat_index = (int)(intptr_t)arg + 1;  // +1 for 1-based indexing in output
+// Timeout handler function
+void* simulation_timeout(void* arg) {
+    // Sleep for the maximum simulation time
+    sleep(max_simulation_time);
     
+    // If we reach here, the simulation has been running too long
     pthread_mutex_lock(&print_mtx);
-    printf("Boat %d Ready\n", boat_index);
+    printf("\nSimulation timeout reached after %d seconds. Forcing termination.\n", max_simulation_time);
     pthread_mutex_unlock(&print_mtx);
     
+    // Set program_ending flag
     pthread_mutex_lock(&bmtx);
-    BA[boat_index-1] = 1;  // Mark boat as available
+    program_ending = 1;
     pthread_mutex_unlock(&bmtx);
     
+    // Signal all waiting semaphores to unblock threads
+    for (int i = 0; i < m; i++) {
+        V(&boat);
+    }
+    for (int i = 0; i < n; i++) {
+        V(&raider);
+    }
+    
+    // Wait a bit for threads to exit gracefully
+    sleep(1);
+    
+    // Force trigger the EOS barrier
+    pthread_barrier_wait(&EOS);
+    
+    return NULL;
+}
+
+void *boat_thread(void *arg) {
+    int boat_index = (int)(intptr_t)arg + 1;  // +1 for 1-based indexing in output
+    pthread_mutex_lock(&print_mtx);
+    printf("Boat       %-2d    Ready\n", boat_index);
+    pthread_mutex_unlock(&print_mtx);
+    /*
+        Mark the boat to be available.
+        Repeat forever: {
+        Send a signal to the rider semaphore.
+        Wait on the boat semaphore.
+        Get the next rider.
+        Mark the boat as not available.
+        Read the ride time of the rider from the shared memory.
+        Ride with the visitor (usleep).
+        Mark the boat as available.
+        If there are no more visitors (all of the n visitors have completed riding),
+        synchronize with the main thread using the barrier EOS.
+    }
+    */
+    // We need to use bmtx for mutual exclusion of shared memory
+    pthread_mutex_lock(&bmtx);
+    BA[boat_index-1] = 1;
+    pthread_mutex_unlock(&bmtx);
+
     while(1) {
+        // checking if the program is ending
+        pthread_mutex_lock(&bmtx);
+        if(program_ending) {
+            pthread_mutex_unlock(&bmtx);
+            pthread_exit(NULL);
+        }
+        pthread_mutex_unlock(&bmtx);
+
         // Send a signal to the rider semaphore
         V(&raider);
-        
+
         // Wait on the boat semaphore
         P(&boat);
-        
+
         // Get the next rider
         pthread_mutex_lock(&bmtx);
+        if (program_ending) {
+            pthread_mutex_unlock(&bmtx);
+            pthread_exit(NULL);
+        }
+
         int rider_index = BC[boat_index-1];
-        
+
         // Mark the boat as not available
         BA[boat_index-1] = 0;
-        
+
         // Read the ride time of the rider from the shared memory
         int ride_time = BT[boat_index-1];
         pthread_mutex_unlock(&bmtx);
-        
-        // If this is a real visitor (not -1), then handle the ride
-        if (rider_index != -1) {
-            // Wait for handshaking with visitor using barrier
-            pthread_barrier_wait(&BB[boat_index-1]);
-            
-            pthread_mutex_lock(&print_mtx);
-            printf("Boat %d Start of ride for visitor %d\n", boat_index, rider_index);
-            pthread_mutex_unlock(&print_mtx);
-            
-            // Ride with the visitor
-            usleep(ride_time * 100000);   // 1 min is scaled to 100 ms
-            
-            pthread_mutex_lock(&print_mtx);
-            printf("Boat %d End of ride for visitor %d (ride time = %d)\n", boat_index, rider_index, ride_time);
-            pthread_mutex_unlock(&print_mtx);
-            
-            // Mark the boat as available
+
+        if(rider_index == -1) {
+            // Reset boat to available if no valid rider
             pthread_mutex_lock(&bmtx);
             BA[boat_index-1] = 1;
-            
-            // Decrement remaining visitors
-            remaining_visitors--;
-            
-            // Check if this was the last visitor
-            int last_visitor = (remaining_visitors == 0);
             pthread_mutex_unlock(&bmtx);
-            
-            // If there are no more visitors
-            if (last_visitor) {
-                // Synchronize with the main thread using the barrier EOS
-                pthread_barrier_wait(&EOS);
-                pthread_exit(NULL);  // Exit the thread
+            continue;
+        }
+
+        pthread_barrier_wait(&BB[boat_index-1]);
+
+        pthread_mutex_lock(&print_mtx);
+        printf("Boat       %-2d    Start of ride for visitor   %-2d\n", boat_index, rider_index);
+        pthread_mutex_unlock(&print_mtx);
+
+        // Ride with the visitor
+        usleep(ride_time*100000);   // 1 min is scaled to 100 ms
+
+        pthread_mutex_lock(&print_mtx);
+        printf("Boat       %-2d    End of ride for visitor     %-2d (ride time = %-2d)\n", boat_index, rider_index, ride_time);
+        pthread_mutex_unlock(&print_mtx);
+
+        // Mark the boat as available
+        pthread_mutex_lock(&bmtx);
+        BA[boat_index-1] = 1;
+        remaining_visitors--;
+        int last_visitor = (remaining_visitors == 0);
+        pthread_mutex_unlock(&bmtx);
+
+        // Check if all visitors have finished
+        pthread_mutex_lock(&active_mtx);
+        int all_finished = (active_visitors == 0 && remaining_visitors == 0);
+        pthread_mutex_unlock(&active_mtx);
+
+        // If there are no more visitors and no active visitors
+        if(all_finished) {
+            pthread_mutex_lock(&bmtx);
+            program_ending = 1;   // set the flag to indicate program ending
+            pthread_mutex_unlock(&bmtx);
+
+            // Signal all boat threads, if they are waiting
+            for (int i = 0; i < m; i++) {
+                V(&boat);
             }
+            for (int i = 0; i < n; i++) {
+                V(&raider);
+            }
+
+            // synchronize with the main thread using the barrier EOS
+            pthread_barrier_wait(&EOS);
+            pthread_exit(NULL);
         }
     }
-    
     return NULL;
 }
 
 void *visitor_thread(void *arg) {
     int visitor_index = (int)(intptr_t)arg + 1;  // +1 for 1-based indexing in output
+    /*
+        Decide a random visit time vtime and a random ride time rtime.
+        Visit other attractions for vtime (usleep).
+        Send a signal to the boat semaphore.
+        Wait on the rider semaphore.
+        Get an available boat.
+        Ride for rtime (usleep).
+        Leave.
+    */
+    // We need to use bmtx for mutual exclusion of shared memory
+
+    // Track active visitor
+    pthread_mutex_lock(&active_mtx);
+    active_visitors++;
+    pthread_mutex_unlock(&active_mtx);
     
-    // Decide a random visit time vtime and a random ride time rtime
+    // deciding a random visit time vtime and a random ride time rtime
     pthread_mutex_lock(&bmtx);
-    vtime[visitor_index-1] = 30 + rand() % 91;  // 30 to 120
-    rtime[visitor_index-1] = 15 + rand() % 46;  // 15 to 60
+    vtime[visitor_index-1] = 30 + rand()%91;  // 30 to 120
+    rtime[visitor_index-1] = 15 + rand()%61;  // 15 to 60
     pthread_mutex_unlock(&bmtx);
-    
+
     pthread_mutex_lock(&print_mtx);
-    printf("Visitor %d Starts sightseeing for %d minutes\n", visitor_index, vtime[visitor_index-1]);
+    printf("Visitor    %-2d    Starts sightseeing for %-3d minutes\n", visitor_index, vtime[visitor_index - 1]);
     pthread_mutex_unlock(&print_mtx);
-    
-    // Visit other attractions for vtime
-    usleep(vtime[visitor_index-1] * 100000);    // 1 min is scaled to 100 ms
-    
+
+    // visit other attractions for vtime
+    usleep(vtime[visitor_index-1]*100000);    // 1 min is scaled to 100 ms
+
     pthread_mutex_lock(&print_mtx);
-    printf("Visitor %d Ready to ride a boat (ride time = %d)\n", visitor_index, rtime[visitor_index-1]);
+    printf("Visitor    %-2d    Ready to ride a boat (ride time = %-2d)\n", visitor_index, rtime[visitor_index - 1]);
     pthread_mutex_unlock(&print_mtx);
-    
+
+    // Check if program is ending before waiting for a boat
+    pthread_mutex_lock(&bmtx);
+    if (program_ending) {
+        pthread_mutex_unlock(&bmtx);
+        pthread_mutex_lock(&active_mtx);
+        active_visitors--;
+        pthread_mutex_unlock(&active_mtx);
+        pthread_mutex_lock(&print_mtx);
+        printf("Visitor    %-2d    Leaving (program ending)\n", visitor_index);
+        pthread_mutex_unlock(&print_mtx);
+        pthread_exit(NULL);
+    }
+    pthread_mutex_unlock(&bmtx);
+
     // Wait on the rider semaphore
     P(&raider);
-    
-    // Get an available boat - implement a busy wait with sleep to avoid starvation
+
+    // Check again after waking up
+    pthread_mutex_lock(&bmtx);
+    if (program_ending) {
+        pthread_mutex_unlock(&bmtx);
+        pthread_mutex_lock(&active_mtx);
+        active_visitors--;
+        pthread_mutex_unlock(&active_mtx);
+        pthread_mutex_lock(&print_mtx);
+        printf("Visitor    %-2d    Leaving (program ending)\n", visitor_index);
+        pthread_mutex_unlock(&print_mtx);
+        pthread_exit(NULL);
+    }
+    pthread_mutex_unlock(&bmtx);
+
+    // Get an available boat, we need to implement a busy wait here, in order to avoid starvation leave the lock and keep usleep(10000) in the loop
     int boat_index = -1;
+    int attempts = 0;
+    int max_attempts = 100; // Add timeout to prevent infinite waiting
     
-    while(1) {
+    while(attempts < max_attempts) {
         pthread_mutex_lock(&bmtx);
+        
+        // Check if program is ending during boat search
+        if (program_ending) {
+            pthread_mutex_unlock(&bmtx);
+            pthread_mutex_lock(&active_mtx);
+            active_visitors--;
+            pthread_mutex_unlock(&active_mtx);
+            pthread_mutex_lock(&print_mtx);
+            printf("Visitor    %-2d    Leaving (program ending during boat search)\n", visitor_index);
+            pthread_mutex_unlock(&print_mtx);
+            pthread_exit(NULL);
+        }
         
         for (int i = 0; i < m; i++) {
             if (BA[i] == 1) {
@@ -161,25 +304,42 @@ void *visitor_thread(void *arg) {
         // If no available boat, release lock and sleep briefly to avoid starvation
         pthread_mutex_unlock(&bmtx);
         usleep(10000);  // Wait 10ms before trying again
+        attempts++;
     }
-    
+
+    // If we couldn't find a boat after max attempts, give up
+    if (boat_index == -1) {
+        pthread_mutex_lock(&active_mtx);
+        active_visitors--;
+        pthread_mutex_unlock(&active_mtx);
+        pthread_mutex_lock(&print_mtx);
+        printf("Visitor    %-2d    Leaving (couldn't find an available boat)\n", visitor_index);
+        pthread_mutex_unlock(&print_mtx);
+        pthread_exit(NULL);
+    }
+
     pthread_mutex_lock(&print_mtx);
-    printf("Visitor %d Finds boat %d\n", visitor_index, boat_index+1);
+    printf("Visitor    %-2d    Finds boat %-2d\n", visitor_index, boat_index + 1);
     pthread_mutex_unlock(&print_mtx);
-    
+
     // Send a signal to the boat semaphore
     V(&boat);
-    
+
     // Wait for boat thread to acknowledge using barrier
     pthread_barrier_wait(&BB[boat_index]);
-    
-    // Ride for rtime - boat thread handles the actual usleep
-    usleep(rtime[visitor_index-1] * 100000);
-    
+
+    // Ride for rtime
+    usleep(rtime[visitor_index-1]*100000);    // 1 min is scaled to 100 ms
+
     pthread_mutex_lock(&print_mtx);
-    printf("Visitor %d Leaving\n", visitor_index);
+    printf("Visitor    %-2d    Leaving\n", visitor_index);
     pthread_mutex_unlock(&print_mtx);
-    
+
+    // Decrease active visitors count before leaving
+    pthread_mutex_lock(&active_mtx);
+    active_visitors--;
+    pthread_mutex_unlock(&active_mtx);
+
     // Leave
     pthread_exit(NULL);
 }
@@ -200,66 +360,89 @@ int main(int argc, char *argv[]) {
     }
     
     srand(time(NULL));
-    
-    vtime = (int *)malloc(n * sizeof(int));
-    rtime = (int *)malloc(n * sizeof(int));
-    
-    // Initialize the mutex and semaphores
+
+    // vtime = (int *)malloc(n * sizeof(int));
+    // rtime = (int *)malloc(n * sizeof(int));
+
+    // initialize the mutex and semaphores
     pthread_mutex_init(&bmtx, NULL);
     pthread_mutex_init(&print_mtx, NULL);
+    pthread_mutex_init(&active_mtx, NULL);
     
     boat = (semaphore){0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER};
     raider = (semaphore){0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER};
-    
+
     // Initialize remaining visitors count
     remaining_visitors = n;
-    
-    // Initialize barrier EOS to 2 
-    if (pthread_barrier_init(&EOS, NULL, 2)) {
+
+    // global variables and arrays are used for sharing data 
+    // few barriers are also used for synchronization 
+
+    // initialize barrier EOS to 2 
+    if(pthread_barrier_init(&EOS, NULL, 2)) {
         perror("Barrier initialization failed");
         exit(EXIT_FAILURE);
     }
-    
+
     // BA - boat availability 
-    // BC - next visitor to be boated
-    // BT - boating time of a visitor 
+    // BC - next visiter to be boated
+    // BT - boating time of a visiter 
+    // BB - barrier for boat threads
     BA = (int *)malloc(m * sizeof(int));
     BC = (int *)malloc(m * sizeof(int));
     BT = (int *)malloc(m * sizeof(int));
-    for (int i = 0; i < m; i++) {
+    for(int i = 0; i < m; i++){
         BA[i] = 1;
         BC[i] = -1;
         BT[i] = 0;
     }
-    
-    // Initialize BB barriers for boat-visitor handshaking
+
+    // initialize BB's barier to 2
     BB = (pthread_barrier_t *)malloc(m * sizeof(pthread_barrier_t));
-    for (int i = 0; i < m; i++) {
-        if (pthread_barrier_init(&BB[i], NULL, 2)) {
+    for(int i = 0; i < m; i++){
+        if(pthread_barrier_init(&BB[i], NULL, 2)){
             perror("Barrier initialization failed");
             exit(EXIT_FAILURE);
         }
     }
-    
-    // Create m threads for boats
-    pthread_t boat_threads[m];
-    for (int i = 0; i < m; i++) {
+
+    // create m threads for boats and n threads for visitors and wait until the last rider thread completes its boating
+
+    // create m threads for boats
+    boat_threads = (pthread_t *)malloc(m * sizeof(pthread_t));
+    for(int i = 0; i < m; i++){
         pthread_create(&boat_threads[i], NULL, boat_thread, (void *)(intptr_t)i);
     }
-    
-    // Create n threads for visitors
-    pthread_t visitor_threads[n];
-    for (int i = 0; i < n; i++) {
+
+    // create n threads for visitors
+    visitor_threads = (pthread_t *)malloc(n * sizeof(pthread_t));
+    for(int i = 0; i < n; i++){
         pthread_create(&visitor_threads[i], NULL, visitor_thread, (void *)(intptr_t)i);
     }
-    
-    // Wait until the last rider thread completes its boating
+
+    // Create a timeout thread that will force termination after max_simulation_time
+    pthread_t timeout_thread;
+    pthread_create(&timeout_thread, NULL, simulation_timeout, NULL);
+
+    // wait until the last rider thread completes its boating
     pthread_barrier_wait(&EOS);
-    printf("Came out of end of session barrier\n");
-    
-    // Clean up and destroy synchronization resources
+    // pthread_mutex_lock(&print_mtx);
+    // printf("Came out of end of session barrier\n");
+    // pthread_mutex_unlock(&print_mtx);
+
+    // Cancel timeout thread since we exited normally
+    pthread_cancel(timeout_thread);
+    pthread_join(timeout_thread, NULL);
+
+    // Print summary statistics
+    pthread_mutex_lock(&print_mtx);
+    printf("\nSimulation completed successfully.\n");
+    pthread_mutex_unlock(&print_mtx);
+
+    // deletes the synchronisation and mutual_exclusion resources
     pthread_mutex_destroy(&bmtx);
     pthread_mutex_destroy(&print_mtx);
+    pthread_mutex_destroy(&active_mtx);
     
     pthread_mutex_destroy(&boat.mtx);
     pthread_mutex_destroy(&raider.mtx);
@@ -271,12 +454,15 @@ int main(int argc, char *argv[]) {
         pthread_barrier_destroy(&BB[i]);
     }
     
-    free(vtime);
-    free(rtime);
+    // free allocated memory
+    // free(vtime);
+    // free(rtime);
     free(BA);
     free(BC);
     free(BT);
     free(BB);
+    free(boat_threads);
+    free(visitor_threads);
     
     return 0;
 }

@@ -1,8 +1,10 @@
+// i am changing this to test something 
+
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <string.h>   /* Needed for strcpy() */
-#include <time.h>     /* Needed for time() to seed the RNG */
+#include <time.h>     /* Needed for time() */
 #include <unistd.h>   /* Needed for sleep() and usleep() */
 #include <pthread.h>  /* Needed for all pthread library calls */
 
@@ -28,8 +30,8 @@ int *BT;
 pthread_barrier_t *BB;  // Barriers for boat-visitor handshaking
 int remaining_visitors = 0;  // Track remaining visitors for EOS synchronization
 int program_ending = 0;     // To indicate program ending to boat threads other than the last one
-
-
+int active_visitors = 0;    // Track visitors that are currently in the system
+pthread_mutex_t active_mtx; // Mutex for protecting the active_visitors counter
 
 void P(semaphore *s) {                      // wait function
     pthread_mutex_lock(&s->mtx);
@@ -50,7 +52,7 @@ void V(semaphore *s) {                         // signal function
 }
 
 
-void *boat_thread( void *arg ){
+void *boat_thread(void *arg) {
     int boat_index = (int)(intptr_t)arg + 1;  // +1 for 1-based indexing in output
     pthread_mutex_lock(&print_mtx);
     printf("Boat       %-2d    Ready\n", boat_index);
@@ -74,10 +76,10 @@ void *boat_thread( void *arg ){
     BA[boat_index-1] = 1;
     pthread_mutex_unlock(&bmtx);
 
-    while(1){
+    while(1) {
         // checking if the program is ending
         pthread_mutex_lock(&bmtx);
-        if(program_ending){
+        if(program_ending) {
             pthread_mutex_unlock(&bmtx);
             pthread_exit(NULL);
         }
@@ -101,13 +103,15 @@ void *boat_thread( void *arg ){
         // Mark the boat as not available
         BA[boat_index-1] = 0;
 
-        
-
         // Read the ride time of the rider from the shared memory
         int ride_time = BT[boat_index-1];
         pthread_mutex_unlock(&bmtx);
 
-        if( rider_index == -1 ) {
+        if(rider_index == -1) {
+            // Reset boat to available if no valid rider
+            pthread_mutex_lock(&bmtx);
+            BA[boat_index-1] = 1;
+            pthread_mutex_unlock(&bmtx);
             continue;
         }
 
@@ -131,13 +135,18 @@ void *boat_thread( void *arg ){
         int last_visitor = (remaining_visitors == 0);
         pthread_mutex_unlock(&bmtx);
 
-        // If there are no more visitors
-        if( last_visitor ){
+        // Check if all visitors have finished
+        pthread_mutex_lock(&active_mtx);
+        int all_finished = (active_visitors == 0 && remaining_visitors == 0);
+        pthread_mutex_unlock(&active_mtx);
+
+        // If there are no more visitors and no active visitors
+        if(all_finished) {
             pthread_mutex_lock(&bmtx);
             program_ending = 1;   // set the flag to indicate program ending
             pthread_mutex_unlock(&bmtx);
 
-            // Signal all boat threads , if they are waiting
+            // Signal all boat threads, if they are waiting
             for (int i = 0; i < m; i++) {
                 V(&boat);
             }
@@ -153,7 +162,7 @@ void *boat_thread( void *arg ){
     return NULL;
 }
 
-void *visitor_thread( void *arg ){
+void *visitor_thread(void *arg) {
     int visitor_index = (int)(intptr_t)arg + 1;  // +1 for 1-based indexing in output
     /*
         Decide a random visit time vtime and a random ride time rtime.
@@ -166,10 +175,15 @@ void *visitor_thread( void *arg ){
     */
     // We need to use bmtx for mutual exclusion of shared memory
 
+    // Track active visitor
+    pthread_mutex_lock(&active_mtx);
+    active_visitors++;
+    pthread_mutex_unlock(&active_mtx);
+    
     // deciding a random visit time vtime and a random ride time rtime
     pthread_mutex_lock(&bmtx);
-    vtime[visitor_index-1] = 30 + rand()%91 ;  // 30 to 120
-    rtime[visitor_index-1] = 15 + rand()%61 ;  // 15 to 60
+    vtime[visitor_index-1] = 30 + rand()%91;  // 30 to 120
+    rtime[visitor_index-1] = 15 + rand()%61;  // 15 to 60
     pthread_mutex_unlock(&bmtx);
 
     pthread_mutex_lock(&print_mtx);
@@ -183,13 +197,56 @@ void *visitor_thread( void *arg ){
     printf("Visitor    %-2d    Ready to ride a boat (ride time = %-2d)\n", visitor_index, rtime[visitor_index - 1]);
     pthread_mutex_unlock(&print_mtx);
 
+    // Check if program is ending before waiting for a boat
+    pthread_mutex_lock(&bmtx);
+    if (program_ending) {
+        pthread_mutex_unlock(&bmtx);
+        pthread_mutex_lock(&active_mtx);
+        active_visitors--;
+        pthread_mutex_unlock(&active_mtx);
+        pthread_mutex_lock(&print_mtx);
+        printf("Visitor    %-2d    Leaving (program ending)\n", visitor_index);
+        pthread_mutex_unlock(&print_mtx);
+        pthread_exit(NULL);
+    }
+    pthread_mutex_unlock(&bmtx);
+
     // Wait on the rider semaphore
     P(&raider);
 
-    // Get an available boat , we need to implement a busy wait here , in order to avoid starvation lave the lock and keep usleep(10000) in the loop 
+    // Check again after waking up
+    pthread_mutex_lock(&bmtx);
+    if (program_ending) {
+        pthread_mutex_unlock(&bmtx);
+        pthread_mutex_lock(&active_mtx);
+        active_visitors--;
+        pthread_mutex_unlock(&active_mtx);
+        pthread_mutex_lock(&print_mtx);
+        printf("Visitor    %-2d    Leaving (program ending)\n", visitor_index);
+        pthread_mutex_unlock(&print_mtx);
+        pthread_exit(NULL);
+    }
+    pthread_mutex_unlock(&bmtx);
+
+    // Get an available boat, we need to implement a busy wait here, in order to avoid starvation leave the lock and keep usleep(10000) in the loop
     int boat_index = -1;
-    while(1) {
+    int attempts = 0;
+    int max_attempts = 100; // Add timeout to prevent infinite waiting
+    
+    while(attempts < max_attempts) {
         pthread_mutex_lock(&bmtx);
+        
+        // Check if program is ending during boat search
+        if (program_ending) {
+            pthread_mutex_unlock(&bmtx);
+            pthread_mutex_lock(&active_mtx);
+            active_visitors--;
+            pthread_mutex_unlock(&active_mtx);
+            pthread_mutex_lock(&print_mtx);
+            printf("Visitor    %-2d    Leaving (program ending during boat search)\n", visitor_index);
+            pthread_mutex_unlock(&print_mtx);
+            pthread_exit(NULL);
+        }
         
         for (int i = 0; i < m; i++) {
             if (BA[i] == 1) {
@@ -209,6 +266,18 @@ void *visitor_thread( void *arg ){
         // If no available boat, release lock and sleep briefly to avoid starvation
         pthread_mutex_unlock(&bmtx);
         usleep(10000);  // Wait 10ms before trying again
+        attempts++;
+    }
+
+    // If we couldn't find a boat after max attempts, give up
+    if (boat_index == -1) {
+        pthread_mutex_lock(&active_mtx);
+        active_visitors--;
+        pthread_mutex_unlock(&active_mtx);
+        pthread_mutex_lock(&print_mtx);
+        printf("Visitor    %-2d    Leaving (couldn't find an available boat)\n", visitor_index);
+        pthread_mutex_unlock(&print_mtx);
+        pthread_exit(NULL);
     }
 
     pthread_mutex_lock(&print_mtx);
@@ -228,11 +297,16 @@ void *visitor_thread( void *arg ){
     printf("Visitor    %-2d    Leaving\n", visitor_index);
     pthread_mutex_unlock(&print_mtx);
 
+    // Decrease active visitors count before leaving
+    pthread_mutex_lock(&active_mtx);
+    active_visitors--;
+    pthread_mutex_unlock(&active_mtx);
+
     // Leave
     pthread_exit(NULL);
 }
 
-int main( int argc , char *argv[] ){
+int main(int argc, char *argv[]) {
     if (argc != 3) {
         printf("Usage: %s <boats> <visitors>\n", argv[0]);
         exit(1);
@@ -253,9 +327,9 @@ int main( int argc , char *argv[] ){
     rtime = (int *)malloc(n * sizeof(int));
 
     // initialize the mutex and semaphores
-    // Initialize the mutex and semaphores
     pthread_mutex_init(&bmtx, NULL);
     pthread_mutex_init(&print_mtx, NULL);
+    pthread_mutex_init(&active_mtx, NULL);
     
     boat = (semaphore){0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER};
     raider = (semaphore){0, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER};
@@ -304,7 +378,7 @@ int main( int argc , char *argv[] ){
 
     // create n threads for visitors
     pthread_t visitor_threads[n];
-    for( int i = 0; i < n; i++){
+    for(int i = 0; i < n; i++){
         pthread_create(&visitor_threads[i], NULL, visitor_thread, (void *)(intptr_t)i);
     }
 
@@ -317,6 +391,7 @@ int main( int argc , char *argv[] ){
     // deletes the synchronisation and mutual_exclusion resources
     pthread_mutex_destroy(&bmtx);
     pthread_mutex_destroy(&print_mtx);
+    pthread_mutex_destroy(&active_mtx);
     
     pthread_mutex_destroy(&boat.mtx);
     pthread_mutex_destroy(&raider.mtx);
