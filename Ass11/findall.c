@@ -7,13 +7,13 @@
 #include <unistd.h>
 #include <errno.h>
 
-typedef struct {
+typedef struct UserRecord {
     char *username;
     unsigned int user_id;
+    struct UserRecord *next;
 } UserRecord;
 
 UserRecord *user_database = NULL;
-int database_size = 0;
 
 void initialize_user_database() {
     char buffer[2048];
@@ -23,11 +23,6 @@ void initialize_user_database() {
         fprintf(stderr, "Cannot access user database: %s\n", strerror(errno));
         return;
     }
-
-    /*
-        the structure of every line is 
-            username:x:UID:GID:comment:home_directory:shell
-    */
     
     while (fgets(buffer, sizeof(buffer), passwd)) {
         char *name_ptr = buffer;
@@ -47,19 +42,16 @@ void initialize_user_database() {
         *delimiter = '\0';
         unsigned int id_value = atoi(id_start);
         
-        int new_size = database_size + 1;
-        UserRecord *temp = realloc(user_database, new_size * sizeof(UserRecord));
-        
-        if (!temp) {
+        UserRecord *new_node = (UserRecord *)malloc(sizeof(UserRecord));
+        if (!new_node) {
             fprintf(stderr, "Failed to allocate memory\n");
-            fclose(passwd);
-            return;
+            continue;
         }
         
-        user_database = temp;
-        user_database[database_size].username = strdup(name_ptr);
-        user_database[database_size].user_id = id_value;
-        database_size = new_size;
+        new_node->username = strdup(name_ptr);
+        new_node->user_id = id_value;
+        new_node->next = user_database;
+        user_database = new_node;
     }
     
     fclose(passwd);
@@ -68,10 +60,12 @@ void initialize_user_database() {
 char* find_username(unsigned int id) {
     static char id_buffer[64];
     
-    for (int index = 0; index < database_size; index++) {
-        if (user_database[index].user_id == id) {
-            return user_database[index].username;
+    UserRecord *current = user_database;
+    while (current != NULL) {
+        if (current->user_id == id) {
+            return current->username;
         }
+        current = current->next;
     }
     
     struct passwd *pwd_entry = getpwuid(id);
@@ -107,7 +101,6 @@ void explore_files(const char *base_path, const char *file_type, int *matches) {
     }
     
     while ((item = readdir(folder))) {
-
         if (item->d_name[0] == '.' && 
             (item->d_name[1] == '\0' || 
              (item->d_name[1] == '.' && item->d_name[2] == '\0'))) {
@@ -147,9 +140,23 @@ void explore_files(const char *base_path, const char *file_type, int *matches) {
     closedir(folder);
 }
 
+void free_user_database() {
+    UserRecord *current = user_database;
+    UserRecord *next;
+    
+    while (current != NULL) {
+        next = current->next;
+        free(current->username);
+        free(current);
+        current = next;
+    }
+    
+    user_database = NULL;
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 3) {
-        printf("Usage: %s <directory> <file_extension>\n", argv[0]);
+        printf("Usage: %s <directory> <extension>\n", argv[0]);
         return 1;
     }
     
@@ -163,10 +170,7 @@ int main(int argc, char *argv[]) {
     
     printf("+++ %d files match the extension %s\n", result_count, argv[2]);
     
-    for (int i = 0; i < database_size; i++) {
-        free(user_database[i].username);
-    }
-    free(user_database);
+    free_user_database();
     
     return 0;
 }
