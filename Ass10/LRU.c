@@ -3,52 +3,53 @@
 #include <stdint.h>
 #include <time.h>
 
-#define PAGE_SIZE 4096
-#define TOTAL_MEMORY (64 * 1024 * 1024)
-#define OS_MEMORY (16 * 1024 * 1024)
-#define USER_MEMORY (TOTAL_MEMORY - OS_MEMORY)
-#define TOTAL_FRAMES (TOTAL_MEMORY / PAGE_SIZE)
-#define USER_FRAMES (USER_MEMORY / PAGE_SIZE)
-#define PAGE_TABLE_SIZE 2048
-#define ESSENTIAL_PAGES 10
-#define NFFMIN 1000
+// Constants 
+#define PAGE_SIZE 4096 // 4 KB
+#define TOTAL_MEMORY (64 * 1024 * 1024) // 64 MB
+#define OS_MEMORY (16 * 1024 * 1024) // 16 MB
+#define USER_MEMORY (TOTAL_MEMORY - OS_MEMORY) // 48 MB
+#define TOTAL_FRAMES (TOTAL_MEMORY / PAGE_SIZE) // 16384 frames
+#define USER_FRAMES (USER_MEMORY / PAGE_SIZE) // 12288 frames
+#define PAGE_TABLE_SIZE 2048 // Entries per process
+#define ESSENTIAL_PAGES 10 // Essential pages per process
+#define NFFMIN 1000 // Minimum number of frames for NFF
 
 typedef struct process {
-    uint16_t page_table[PAGE_TABLE_SIZE];
-    uint16_t page_history[PAGE_TABLE_SIZE];
-    int size;
-    int *search_keys;
-    int num_searches;
-    int current_search;
-    int swapped_out;
-    int page_accesses;
-    int page_faults;
-    int page_replacements;
-    int attempt_stats[4];
+    uint16_t page_table[PAGE_TABLE_SIZE];  // Page table
+    uint16_t page_history[PAGE_TABLE_SIZE];  // Page history
+    int size;     // size of array A
+    int *search_keys;   // Array of search keys
+    int num_searches;   // Total number of searches
+    int current_search;   // Index of current search
+    int swapped_out;    
+    int page_accesses;   // Total number of page accesses
+    int page_faults;     // Total number of page faults
+    int page_replacements;    // Total number of page replacements
+    int attempt_stats[4];   // Attempt statistics for each process
 } Process;
 
 typedef struct free_frame {
-    int frame_number;
-    int last_owner;
-    int page_number;
+    int frame_number;    // Frame number
+    int last_owner;    // PID of last owner
+    int page_number;     // Page number of last owner
 } FreeFrame;
 
-Process *processes;
-int n, m;
-int num_freeframes;
-FreeFrame *FFLIST;
-int *free_frames;
-int front, rear;
-int count;
-int *ready_queue;
-int ready_front, ready_rear;
-int ready_count;
-int active_processes;
-int min_active_processes;
-int page_accesses;
-int page_faults;
-int swap_operations;
-int total_attempt_stats[4];
+Process *processes;    // Array of processes
+int n, m;       // Number of processes and searches per process
+int num_freeframes;    // Number of free frames
+FreeFrame *FFLIST;    // List of free frames
+int *free_frames;     // List of available frames
+int front, rear;    // Queue front and rear indices
+int count;    // Number of available frames
+int *ready_queue;   // Queue of processes ready to execute
+int ready_front, ready_rear;     // Queue front and rear indices
+int ready_count;     // Number of processes in ready queue
+int active_processes;    // Number of active (not swapped out) processes
+int min_active_processes;   // Minimum number of active processes when memory is full
+int page_accesses;      // Total number of page accesses
+int page_faults;      // Total number of page faults
+int swap_operations;     // Total number of swap operations
+int total_attempt_stats[4];      // Total attempt statistics for all processes
 
 void enqueue_free(int frame_number) {
     free_frames[rear] = frame_number;
@@ -89,6 +90,11 @@ void read_input_file() {
         exit(1);
     }
     fscanf(fp, "%d %d", &n, &m);
+    if (n < 50 || n > 500 || m < 10 || m > 100) {
+        printf("Error: Invalid number of processes or searches\n");
+        fclose(fp);
+        exit(1);
+    }
     processes = (Process*)malloc(n * sizeof(Process));
     for (int i = 0; i < n; i++) {
         fscanf(fp, "%d", &processes[i].size);
@@ -153,6 +159,9 @@ void initialize_kernel() {
 }
 
 void update_history(int proc_id) {
+    // Update the page history for the process
+    // Shift the history bits to the right and set the reserved bit
+
     Process *proc = &processes[proc_id];
     for (int i = 0; i < PAGE_TABLE_SIZE; i++) {
         if (proc->page_table[i] & (1<<15)) {
@@ -164,6 +173,10 @@ void update_history(int proc_id) {
 }
 
 int find_victim_page(int proc_id) {
+    // Find the page with the minimum history value that is not essential
+    // and is currently in memory (valid bit set)
+    // Return the page number of the victim page
+    // If no victim page is found, return -1
     Process *proc = &processes[proc_id];
     uint16_t min_history = 0xFFFF;
     int victim_page = -1;
@@ -177,6 +190,15 @@ int find_victim_page(int proc_id) {
 }
 
 int handle_page_fault(int proc_id, int page_number) {
+    // Handle a page fault for the given process and page number
+    // If there are free frames, allocate one and update the page table
+    // If not, find a victim page to replace and update the page table
+    // Return 0 on success, -1 on failure
+    // rules for swapping in the order of importance is 
+    // 1. select frame with same process and same page number
+    // 2. select frame with no previous owner
+    // 3. select frame with same process and different page number
+    // 4. select frame in random order
     Process *proc = &processes[proc_id];
     if (num_freeframes > NFFMIN) {
         int frame_number = dequeue_free();
@@ -199,6 +221,7 @@ int handle_page_fault(int proc_id, int page_number) {
         #endif
         int new_frame = -1;
         int attempt = -1;
+        // 1. select frame with same process and same page number
         for (int i = num_freeframes - 1; i >= 0; i--) {
             int idx = (front + i) % USER_FRAMES;
             int frame_idx = free_frames[idx];
@@ -217,6 +240,7 @@ int handle_page_fault(int proc_id, int page_number) {
                 break;
             }
         }
+        // 2. select frame with no previous owner
         if (new_frame == -1) {
             for (int i = num_freeframes - 1; i >= 0; i--) {
                 int idx = (front + i) % USER_FRAMES;
@@ -237,6 +261,7 @@ int handle_page_fault(int proc_id, int page_number) {
                 }
             }
         }
+        // 3. select frame with same process and different page number
         if (new_frame == -1) {
             for (int i = num_freeframes - 1; i >= 0; i--) {
                 int idx = (front + i) % USER_FRAMES;
@@ -257,6 +282,7 @@ int handle_page_fault(int proc_id, int page_number) {
                 }
             }
         }
+        // 4. select frame in random order
         if (new_frame == -1) {
             int random_index = rand() % num_freeframes;
             int idx = (front + random_index) % USER_FRAMES;
@@ -289,6 +315,7 @@ int handle_page_fault(int proc_id, int page_number) {
 }
 
 int binary_search(int proc_id) {
+    // Perform binary search for the given process ID
     Process *proc = &processes[proc_id];
     int search_value = proc->search_keys[proc->current_search];
     #ifdef VERBOSE
@@ -325,6 +352,9 @@ int binary_search(int proc_id) {
 }
 
 void run_simulation() {
+    // Run the simulation for all processes
+    // until all processes have completed their searches
+    // and all frames have been freed
     int completed_processes = 0;
     while (completed_processes < n) {
         if (ready_count > 0) {
@@ -352,6 +382,7 @@ void run_simulation() {
 }
 
 void print_statistics() {
+    // Print the statistics of the simulation
     printf("+++ Page access summary\n");
     printf(" PID Accesses Faults         Replacements                        Attempts\n");
     int total_accesses = 0;

@@ -1,6 +1,6 @@
 run: LRU.c
 	gcc -Wall -o runsearch LRU.c
-	./runsearch
+	./runsearch > output.txt
 vrun: LRU.c
 	gcc -Wall -DVERBOSE -o runsearch LRU.c
 	./runsearch > output.txt
